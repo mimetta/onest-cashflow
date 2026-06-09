@@ -1,8 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
-import { supabase } from '@/lib/supabase'
+import { createBrowserClient } from '@supabase/ssr'
 import type { Role } from '@/types'
 
 interface NavHeaderProps {
@@ -18,11 +17,13 @@ const ROLE_LABELS: Record<Role, string> = {
 }
 
 export default function NavHeader({ userName, role }: NavHeaderProps) {
-  const router = useRouter()
-
   async function handleSignOut() {
+    const supabase = createBrowserClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    )
     await supabase.auth.signOut()
-    router.push('/login')
+    window.location.href = '/login'
   }
 
   return (
