@@ -4,7 +4,7 @@ import NavHeader from '@/components/NavHeader'
 import HrDashboard from './HrDashboard'
 import {
   getPLData, getPLDataAggregated, filterPLDataByHRCategory,
-  getComparisonPeriods, addAmounts, ZERO,
+  getComparisonPeriods,
 } from '@/lib/pl-data'
 import type { PLData } from '@/lib/pl-data'
 
@@ -17,7 +17,7 @@ async function fetchPeriod(periods: Array<{ year: number; month: number }>): Pro
 export default async function HrDashboardPage({
   searchParams,
 }: {
-  searchParams: Promise<{ mode?: string; category?: string }>
+  searchParams: Promise<{ mode?: string }>
 }) {
   const user = await getCurrentUser()
   if (!user || user.role !== 'hr') redirect('/login')
@@ -36,28 +36,21 @@ export default async function HrDashboardPage({
     fetchPeriod(p2),
   ])
 
+  // HR-filtered data for the primary table
   const period1Data = filterPLDataByHRCategory(raw1)
   const period2Data = filterPLDataByHRCategory(raw2)
 
-  // Build category summary cards from period1
-  const categoryMap: Record<string, { budget: number; actual: number }> = {}
+  // Compute per-category KPI totals
+  const hrKpis: Record<string, { budget: number; actual: number }> = {}
   for (const section of period1Data.sections) {
     for (const group of section.groups) {
       for (const item of group.lineItems) {
-        if (!categoryMap[item.categoryName]) categoryMap[item.categoryName] = { budget: 0, actual: 0 }
-        categoryMap[item.categoryName].budget += item.budget
-        categoryMap[item.categoryName].actual += item.actual
+        if (!hrKpis[item.categoryName]) hrKpis[item.categoryName] = { budget: 0, actual: 0 }
+        hrKpis[item.categoryName].budget += item.budget
+        hrKpis[item.categoryName].actual += item.actual
       }
     }
   }
-
-  const categorySummary = Object.entries(categoryMap).map(([name, amounts]) => ({
-    categoryName: name,
-    ...amounts,
-  })).sort((a, b) => a.categoryName.localeCompare(b.categoryName))
-
-  const allItems = period1Data.sections.flatMap(s => s.groups.flatMap(g => g.lineItems))
-  const totals   = allItems.reduce(addAmounts, ZERO)
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
@@ -68,8 +61,9 @@ export default async function HrDashboardPage({
           period1={{ label: p1Label, data: period1Data }}
           period2={{ label: p2Label, data: period2Data }}
           deltaLabel={deltaLabel}
-          categorySummary={categorySummary}
-          totals={totals}
+          hrKpis={hrKpis}
+          period1Full={{ label: p1Label, data: raw1 }}
+          period2Full={{ label: p2Label, data: raw2 }}
         />
       </main>
     </div>

@@ -24,6 +24,7 @@ export type PLSection = {
   readonly totalLabel: string
   readonly totalId: string        // used by PLCalculatedRow.terms to reference this total
   readonly note?: string
+  readonly defaultCollapsed: true  // all sections start collapsed in PLTable
 }
 
 export type PLCalculatedRow = {
@@ -45,6 +46,7 @@ export const PL_SECTIONS: readonly PLSection[] = [
     title:      'SECTION 1 — REVENUE BY CHANNEL',
     totalLabel: 'TOTAL GROSS SALES',
     totalId:    'total_gross_sales',
+    defaultCollapsed: true,
     groups: [
       {
         deptCode:     'Revenue by Channel',
@@ -76,6 +78,7 @@ export const PL_SECTIONS: readonly PLSection[] = [
     totalLabel: 'TOTAL PRODUCT REVENUE',
     totalId:    'total_product_revenue',
     note:       'Must reconcile with TOTAL GROSS SALES',
+    defaultCollapsed: true,
     groups: [
       {
         deptCode:     'Revenue by Product Category',
@@ -106,6 +109,7 @@ export const PL_SECTIONS: readonly PLSection[] = [
     title:      'SECTION 3 — GP DEDUCTIONS',
     totalLabel: 'TOTAL GP DEDUCTIONS',
     totalId:    'total_gp_deductions',
+    defaultCollapsed: true,
     groups: [
       {
         deptCode:     'GP',
@@ -121,6 +125,7 @@ export const PL_SECTIONS: readonly PLSection[] = [
     title:      'SECTION 4 — COST OF GOODS',
     totalLabel: 'TOTAL COST OF GOODS',
     totalId:    'total_cogs',
+    defaultCollapsed: true,
     groups: [
       {
         deptCode:     'COGM',
@@ -151,6 +156,7 @@ export const PL_SECTIONS: readonly PLSection[] = [
     title:      'SECTION 5 — OPERATING EXPENSES',
     totalLabel: 'TOTAL OPERATING EXPENSES',
     totalId:    'total_opex',
+    defaultCollapsed: true,
     groups: [
       {
         deptCode:     'Factory Operation',
@@ -191,6 +197,7 @@ export const PL_SECTIONS: readonly PLSection[] = [
     title:      'SECTION 6 — CAPEX',
     totalLabel: 'TOTAL CAPEX',
     totalId:    'total_capex',
+    defaultCollapsed: true,
     groups: [
       {
         deptCode:     'Depreciation & CAPEX',
