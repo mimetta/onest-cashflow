@@ -1,15 +1,13 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
   const isDashboard = pathname.startsWith('/dashboard')
   const isLogin     = pathname === '/login'
 
-  // If Supabase env vars are not configured, pass all requests through
-  // so a missing env var never causes a deployment-wide 404
-  const supabaseUrl  = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const supabaseKey  = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
   if (!supabaseUrl || !supabaseKey) return NextResponse.next()
 
   let response = NextResponse.next({ request })
@@ -39,7 +37,6 @@ export async function middleware(request: NextRequest) {
       return NextResponse.redirect(new URL('/dashboard', request.url))
     }
   } catch {
-    // Auth check failed — fail open so the app remains reachable
     if (isDashboard) {
       return NextResponse.redirect(new URL('/login', request.url))
     }
