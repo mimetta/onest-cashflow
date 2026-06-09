@@ -1,7 +1,15 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
-export default async function proxy(request: NextRequest) {
+export async function middleware(request: NextRequest) {
+  const { pathname } = request.nextUrl
+
+  // Only intercept /dashboard/* and /login — everything else passes straight through
+  const isDashboard = pathname.startsWith('/dashboard')
+  const isLogin     = pathname === '/login'
+  if (!isDashboard && !isLogin) return NextResponse.next()
+
+  // Build a mutable response so Supabase can refresh the session cookie
   let response = NextResponse.next({ request })
 
   const supabase = createServerClient(
@@ -23,15 +31,14 @@ export default async function proxy(request: NextRequest) {
     }
   )
 
-  // getUser() validates the JWT with Supabase — must not use getSession() here
+  // getUser() validates the JWT server-side — never use getSession() in middleware
   const { data: { user } } = await supabase.auth.getUser()
-  const { pathname } = request.nextUrl
 
-  if (!user && pathname.startsWith('/dashboard')) {
+  if (!user && isDashboard) {
     return NextResponse.redirect(new URL('/login', request.url))
   }
 
-  if (user && pathname === '/login') {
+  if (user && isLogin) {
     return NextResponse.redirect(new URL('/dashboard', request.url))
   }
 
@@ -39,7 +46,5 @@ export default async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
-  ],
+  matcher: ['/dashboard/:path*', '/login'],
 }
