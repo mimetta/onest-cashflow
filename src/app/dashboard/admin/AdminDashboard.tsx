@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, Suspense } from 'react'
+import Link from 'next/link'
 import type { PLData } from '@/lib/pl-types'
 import PLTable, { type BudgetEditParams, type ActualEditParams } from '@/components/PLTable'
 import PeriodSelector from '@/components/PeriodSelector'
@@ -74,9 +75,17 @@ export default function AdminDashboard({
   return (
     <div className="max-w-screen-2xl mx-auto px-4 py-6 space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <h1 className="text-xl font-bold text-gray-900">Admin — P&amp;L</h1>
-        <Suspense><PeriodSelector current={mode} /></Suspense>
+        <div className="flex items-center gap-3">
+          <Link
+            href="/dashboard/admin/users"
+            className="px-3 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 border border-gray-200 rounded-lg hover:bg-white transition-colors"
+          >
+            Manage Users
+          </Link>
+          <Suspense><PeriodSelector current={mode} /></Suspense>
+        </div>
       </div>
 
       {/* KPI cards */}
