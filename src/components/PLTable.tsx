@@ -4,8 +4,16 @@ import { Fragment, useMemo, useState } from 'react'
 import type {
   PLData, PLSectionData, PLGroupData, PLLineItemRow, PLCalcRowData, Amounts,
 } from '@/lib/pl-types'
-import { ZERO } from '@/lib/pl-types'
+import { ZERO, addAmounts } from '@/lib/pl-types'
 import EditableCell from './EditableCell'
+
+// ── Collapse state ────────────────────────────────────────────────────────────
+
+type CollapseState = {
+  sections:   Record<string, boolean>   // sectionId → isExpanded
+  depts:      Record<string, boolean>   // departmentId → isExpanded
+  categories: Record<string, boolean>  // `${departmentId}|${categoryName}` → isExpanded
+}
 
 // ── Formatting ────────────────────────────────────────────────────────────────
 
@@ -29,11 +37,10 @@ function deltaInfo(p1: number, p2: number): { text: string; pos: boolean | null 
 const OPEX_ID = 'operating_expenses'
 const REV_IDS = new Set(['revenue_channel', 'revenue_product'])
 
-// ── P2 lookups ────────────────────────────────────────────────────────────────
+// ── P2 lookup map ─────────────────────────────────────────────────────────────
 
 type P2Map = {
   items:         Record<string, Amounts>
-  groupSubs:     Record<string, Amounts>
   sectionTotals: Record<string, Amounts>
   calcRows:      Record<string, Amounts>
   grossBudget:   number
@@ -41,18 +48,11 @@ type P2Map = {
 }
 
 function buildP2Map(data: PLData): P2Map {
-  const m: P2Map = {
-    items: {}, groupSubs: {}, sectionTotals: {}, calcRows: {},
-    grossBudget: 0, grossActual: 0,
-  }
+  const m: P2Map = { items: {}, sectionTotals: {}, calcRows: {}, grossBudget: 0, grossActual: 0 }
   for (const s of data.sections) {
     m.sectionTotals[s.id] = s.total
-    if (s.id === 'revenue_channel') {
-      m.grossBudget = s.total.budget
-      m.grossActual = s.total.actual
-    }
+    if (s.id === 'revenue_channel') { m.grossBudget = s.total.budget; m.grossActual = s.total.actual }
     for (const g of s.groups) {
-      m.groupSubs[`${s.id}|${g.deptFullName}`] = g.subtotal
       for (const li of g.lineItems) {
         m.items[li.lineItemId] = { budget: li.budget, actual: li.actual, variance: li.variance }
       }
@@ -68,13 +68,11 @@ function buildP2Map(data: PLData): P2Map {
 
 const num = 'text-right tabular-nums whitespace-nowrap'
 
-function AmtCell({
-  n, py = 'py-1.5', editable, onSave,
-}: {
+function AmtCell({ n, py = 'py-1.5', editable, onSave }: {
   n: number; py?: string; editable?: boolean; onSave?: (v: number) => Promise<void>
 }) {
   return (
-    <td className={`${num} px-3 ${py} text-sm`} onClick={e => editable && e.stopPropagation()}>
+    <td className={`${num} px-3 ${py} text-xs`} onClick={e => editable && e.stopPropagation()}>
       {editable && onSave
         ? <EditableCell value={n} onSave={onSave} />
         : <span className={n === 0 ? 'text-gray-300' : ''}>{thb(n)}</span>}
@@ -83,9 +81,7 @@ function AmtCell({
 }
 
 function PctCell({ v, base, py = 'py-1.5' }: { v: number; base: number; py?: string }) {
-  return (
-    <td className={`${num} px-2 ${py} text-xs text-gray-400`}>{pctStr(v, base)}</td>
-  )
+  return <td className={`${num} px-2 ${py} text-[10px] text-gray-400`}>{pctStr(v, base)}</td>
 }
 
 function DeltaCell({ p1, p2, revCtx, py = 'py-1.5' }: {
@@ -94,12 +90,10 @@ function DeltaCell({ p1, p2, revCtx, py = 'py-1.5' }: {
   const { text, pos } = deltaInfo(p1, p2)
   const cls = pos === null ? 'text-gray-400'
     : (revCtx ? pos : !pos) ? 'text-emerald-600 font-semibold' : 'text-red-500 font-semibold'
-  return <td className={`${num} px-3 ${py} text-xs ${cls}`}>{text}</td>
+  return <td className={`${num} px-3 ${py} text-[10px] ${cls}`}>{text}</td>
 }
 
-function PCols({
-  a, gb, ga, py = 'py-1.5', editable, onB, onA,
-}: {
+function PCols({ a, gb, ga, py = 'py-1.5', editable, onB, onA }: {
   a: Amounts; gb: number; ga: number; py?: string
   editable?: boolean
   onB?: (v: number) => Promise<void>
@@ -115,6 +109,16 @@ function PCols({
   )
 }
 
+function OwnerCell({ value, showDash, py = 'py-1.5' }: {
+  value?: string | null; showDash?: boolean; py?: string
+}) {
+  return (
+    <td className={`px-2 ${py} text-[11px] text-gray-400 whitespace-nowrap max-w-[110px] truncate`}>
+      {value ?? (showDash ? '—' : '')}
+    </td>
+  )
+}
+
 // ── Export types ──────────────────────────────────────────────────────────────
 
 export interface BudgetEditParams {
@@ -127,20 +131,19 @@ export interface BudgetEditParams {
 
 export interface ActualEditParams {
   lineItemId: string
-  monthDate:  string   // 'YYYY-MM-01'
+  monthDate:  string
   amount:     number
 }
 
 export interface PLTableProps {
-  period1:              { label: string; data: PLData }
-  period2?:             { label: string; data: PLData }
-  deltaLabel?:          string
-  onBudgetSave?:        (p: BudgetEditParams) => Promise<void>
-  onActualSave?:        (p: ActualEditParams) => Promise<void>
-  onRowClick?:          (lineItemId: string, lineItemName: string) => void
-  showCalculatedRows?:  boolean
-  /** Pre-expand sections on mount: 'all' expands everything, or pass section id array */
-  defaultExpanded?:     'all' | string[]
+  period1:             { label: string; data: PLData }
+  period2?:            { label: string; data: PLData }
+  deltaLabel?:         string
+  onBudgetSave?:       (p: BudgetEditParams) => Promise<void>
+  onActualSave?:       (p: ActualEditParams) => Promise<void>
+  onRowClick?:         (lineItemId: string, lineItemName: string) => void
+  showCalculatedRows?: boolean
+  defaultExpanded?:    'all' | string[]
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
@@ -151,29 +154,27 @@ export default function PLTable({
   showCalculatedRows = true,
   defaultExpanded,
 }: PLTableProps) {
-  // -- Initial expand state (runs once on mount)
-  const [expandedSections, setExpandedSections] = useState<Set<string>>(() => {
-    if (defaultExpanded === 'all') return new Set(period1.data.sections.map(s => s.id))
-    if (Array.isArray(defaultExpanded)) return new Set(defaultExpanded)
-    return new Set<string>()
-  })
 
-  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => {
+  const [collapse, setCollapse] = useState<CollapseState>(() => {
     if (defaultExpanded === 'all') {
-      const opex = period1.data.sections.find(s => s.id === OPEX_ID)
-      return new Set(
-        opex?.groups
-          .filter(g => g.lineItems.length > 0)
-          .map(g => `${OPEX_ID}|${g.deptFullName}`) ?? []
-      )
+      const sections: Record<string, boolean> = {}
+      const depts:    Record<string, boolean> = {}
+      for (const s of period1.data.sections) {
+        sections[s.id] = true
+        for (const g of s.groups) { if (g.departmentId) depts[g.departmentId] = true }
+      }
+      return { sections, depts, categories: {} }
     }
-    return new Set<string>()
+    if (Array.isArray(defaultExpanded)) {
+      const sections: Record<string, boolean> = {}
+      for (const id of defaultExpanded) sections[id] = true
+      return { sections, depts: {}, categories: {} }
+    }
+    return { sections: {}, depts: {}, categories: {} }
   })
 
-  const p2 = useMemo(() => period2 ? buildP2Map(period2.data) : null, [period2])
-
+  const p2         = useMemo(() => period2 ? buildP2Map(period2.data) : null, [period2])
   const hasPeriod2 = p2 !== null
-  const totalCols  = hasPeriod2 ? 10 : 5
   const editable   = Boolean(onBudgetSave || onActualSave) && !hasPeriod2
 
   const [p1gb, p1ga] = useMemo(() => {
@@ -185,41 +186,36 @@ export default function PLTable({
   const monthDate = `${year}-${String(month).padStart(2, '0')}-01`
 
   function toggleSection(id: string) {
-    setExpandedSections(prev => {
-      const next = new Set(prev)
-      next.has(id) ? next.delete(id) : next.add(id)
-      return next
-    })
+    setCollapse(prev => ({ ...prev, sections: { ...prev.sections, [id]: !(prev.sections[id] ?? false) } }))
+  }
+  function toggleDept(deptId: string) {
+    setCollapse(prev => ({ ...prev, depts: { ...prev.depts, [deptId]: !(prev.depts[deptId] ?? false) } }))
+  }
+  function toggleCategory(catKey: string) {
+    setCollapse(prev => ({ ...prev, categories: { ...prev.categories, [catKey]: !(prev.categories[catKey] ?? false) } }))
   }
 
-  function toggleGroup(key: string) {
-    setExpandedGroups(prev => {
-      const next = new Set(prev)
-      next.has(key) ? next.delete(key) : next.add(key)
-      return next
-    })
-  }
+  // ── Row renderers ──────────────────────────────────────────────────────────
 
-  // -- Row renderers
-
-  function renderLineItem(li: PLLineItemRow, group: PLGroupData, section: PLSectionData) {
+  function renderLineItem(
+    li: PLLineItemRow, group: PLGroupData, section: PLSectionData, deepIndent: boolean,
+  ) {
     const p2a    = p2?.items[li.lineItemId] ?? ZERO
     const revCtx = REV_IDS.has(section.id)
     return (
       <tr
         key={li.lineItemId}
         onClick={() => onRowClick?.(li.lineItemId, li.name)}
-        className={`border-b border-gray-100 ${
-          onRowClick ? 'cursor-pointer hover:bg-indigo-50' : 'hover:bg-gray-50/50'
-        }`}
+        className={`border-b border-gray-100 ${onRowClick ? 'cursor-pointer hover:bg-indigo-50' : 'hover:bg-gray-50/30'}`}
+        style={deepIndent ? { borderLeft: '2px solid #d1d5db' } : undefined}
       >
-        <td className="pl-10 pr-3 py-1.5 text-sm text-gray-700">
+        <td className={`${deepIndent ? 'pl-[48px]' : 'pl-10'} pr-3 py-1.5 text-xs text-gray-700`}>
           <div>{li.name}</div>
-          {li.subcategoryL1 && <div className="text-xs text-gray-400 mt-0.5">{li.subcategoryL1}</div>}
+          {li.subcategoryL1 && <div className="text-[10px] text-gray-400 mt-0.5">{li.subcategoryL1}</div>}
         </td>
+        <OwnerCell value={li.ownerName} showDash />
         <PCols
-          a={li} gb={p1gb} ga={p1ga}
-          editable={editable}
+          a={li} gb={p1gb} ga={p1ga} editable={editable}
           onB={onBudgetSave
             ? v => onBudgetSave({ lineItemId: li.lineItemId, departmentId: group.departmentId, year, month, amount: v })
             : undefined}
@@ -237,25 +233,6 @@ export default function PLTable({
     )
   }
 
-  function renderGroupSubtotal(group: PLGroupData, section: PLSectionData) {
-    const p2a    = p2?.groupSubs[`${section.id}|${group.deptFullName}`] ?? ZERO
-    const revCtx = REV_IDS.has(section.id)
-    return (
-      <tr className="border-b border-gray-200 bg-gray-50">
-        <td className="pl-6 pr-3 py-1.5 text-xs font-semibold italic text-gray-500">
-          {group.subtotalLabel}
-        </td>
-        <PCols a={group.subtotal} gb={p1gb} ga={p1ga} />
-        {hasPeriod2 && (
-          <>
-            <PCols a={p2a} gb={p2!.grossBudget} ga={p2!.grossActual} />
-            <DeltaCell p1={group.subtotal.actual} p2={p2a.actual} revCtx={revCtx} />
-          </>
-        )}
-      </tr>
-    )
-  }
-
   function renderSectionTotal(section: PLSectionData) {
     const p2a    = p2?.sectionTotals[section.id] ?? ZERO
     const revCtx = REV_IDS.has(section.id)
@@ -263,10 +240,9 @@ export default function PLTable({
       <tr className="border-b-2 border-gray-300 bg-gray-200">
         <td className="px-3 py-2 text-xs font-bold text-gray-800 uppercase tracking-wide">
           {section.totalLabel}
-          {section.note && (
-            <span className="ml-2 font-normal text-gray-400 normal-case">({section.note})</span>
-          )}
+          {section.note && <span className="ml-2 font-normal text-gray-400 normal-case">({section.note})</span>}
         </td>
+        <OwnerCell py="py-2" />
         <PCols a={section.total} gb={p1gb} ga={p1ga} py="py-2" />
         {hasPeriod2 && (
           <>
@@ -285,6 +261,7 @@ export default function PLTable({
         <td className="px-3 py-2.5 text-sm font-bold text-blue-900 uppercase tracking-wide">
           {cr.label}
         </td>
+        <OwnerCell py="py-2.5" />
         <PCols a={cr} gb={p1gb} ga={p1ga} py="py-2.5" />
         {hasPeriod2 && (
           <>
@@ -296,13 +273,119 @@ export default function PLTable({
     )
   }
 
-  // -- Main render
+  // Standard group: Section → Group header (collapsible, shows subtotal) → Line items
+  // Used for Revenue, CoGs, GP Deductions, CAPEX
+  function renderStandardGroup(group: PLGroupData, section: PLSectionData) {
+    const isExpanded = collapse.depts[group.departmentId] ?? false
+    const p2gsub = p2
+      ? group.lineItems.reduce((acc: Amounts, li) => addAmounts(acc, p2.items[li.lineItemId] ?? ZERO), ZERO)
+      : ZERO
+    const revCtx = REV_IDS.has(section.id)
+
+    return (
+      <Fragment key={group.departmentId}>
+        <tr
+          className="bg-gray-100 cursor-pointer hover:bg-gray-200 transition-colors select-none"
+          onClick={() => toggleDept(group.departmentId)}
+        >
+          <td className="pl-4 pr-3 py-2 text-[13px] font-medium text-gray-700">
+            <span className="mr-2 text-gray-400 text-[10px]">{isExpanded ? '▼' : '▶'}</span>
+            {group.deptFullName}
+          </td>
+          <OwnerCell value={group.ownerName} py="py-2" />
+          <PCols a={group.subtotal} gb={p1gb} ga={p1ga} py="py-2" />
+          {hasPeriod2 && (
+            <>
+              <PCols a={p2gsub} gb={p2!.grossBudget} ga={p2!.grossActual} py="py-2" />
+              <DeltaCell p1={group.subtotal.actual} p2={p2gsub.actual} revCtx={revCtx} py="py-2" />
+            </>
+          )}
+        </tr>
+        {isExpanded && group.lineItems.map(li => renderLineItem(li, group, section, false))}
+      </Fragment>
+    )
+  }
+
+  // OpEx group: Section → Dept header (collapsible) → Category sub-headers (collapsible) → Line items
+  function renderOpexGroup(group: PLGroupData, section: PLSectionData) {
+    const isDeptExpanded = collapse.depts[group.departmentId] ?? false
+    const p2gsub = p2
+      ? group.lineItems.reduce((acc: Amounts, li) => addAmounts(acc, p2.items[li.lineItemId] ?? ZERO), ZERO)
+      : ZERO
+
+    // Group line items by category, preserving sort order from the server
+    const catMap = new Map<string, PLLineItemRow[]>()
+    for (const li of group.lineItems) {
+      if (!catMap.has(li.categoryName)) catMap.set(li.categoryName, [])
+      catMap.get(li.categoryName)!.push(li)
+    }
+
+    return (
+      <Fragment key={group.departmentId}>
+        {/* Dept header — shows dept total, no separate subtotal row */}
+        <tr
+          className="bg-gray-100 cursor-pointer hover:bg-gray-200 transition-colors select-none"
+          onClick={() => toggleDept(group.departmentId)}
+        >
+          <td className="pl-4 pr-3 py-2 text-[13px] font-medium text-gray-700">
+            <span className="mr-2 text-gray-400 text-[10px]">{isDeptExpanded ? '▼' : '▶'}</span>
+            {group.deptFullName}
+          </td>
+          <OwnerCell value={group.ownerName} py="py-2" />
+          <PCols a={group.subtotal} gb={p1gb} ga={p1ga} py="py-2" />
+          {hasPeriod2 && (
+            <>
+              <PCols a={p2gsub} gb={p2!.grossBudget} ga={p2!.grossActual} py="py-2" />
+              <DeltaCell p1={group.subtotal.actual} p2={p2gsub.actual} revCtx={false} py="py-2" />
+            </>
+          )}
+        </tr>
+
+        {isDeptExpanded && Array.from(catMap.entries()).map(([catName, catItems]) => {
+          const catKey         = `${group.departmentId}|${catName}`
+          const isCatExpanded  = collapse.categories[catKey] ?? false
+          const catTotal       = catItems.reduce((acc: Amounts, li) => addAmounts(acc, li), ZERO)
+          const catP2Total     = p2
+            ? catItems.reduce((acc: Amounts, li) => addAmounts(acc, p2.items[li.lineItemId] ?? ZERO), ZERO)
+            : ZERO
+
+          return (
+            <Fragment key={catKey}>
+              {/* Category sub-header */}
+              <tr
+                className="bg-white cursor-pointer hover:bg-gray-50 transition-colors select-none"
+                style={{ borderLeft: '2px solid #d1d5db' }}
+                onClick={() => toggleCategory(catKey)}
+              >
+                <td className="pl-[34px] pr-3 py-1.5 text-xs font-medium text-gray-500">
+                  <span className="mr-2 text-gray-400 text-[10px]">{isCatExpanded ? '▼' : '▶'}</span>
+                  {catName}
+                </td>
+                <OwnerCell />
+                <PCols a={catTotal} gb={p1gb} ga={p1ga} />
+                {hasPeriod2 && (
+                  <>
+                    <PCols a={catP2Total} gb={p2!.grossBudget} ga={p2!.grossActual} />
+                    <DeltaCell p1={catTotal.actual} p2={catP2Total.actual} revCtx={false} />
+                  </>
+                )}
+              </tr>
+              {isCatExpanded && catItems.map(li => renderLineItem(li, group, section, true))}
+            </Fragment>
+          )
+        })}
+      </Fragment>
+    )
+  }
+
+  // ── Main render ──────────────────────────────────────────────────────────────
 
   return (
     <div className="overflow-x-auto rounded-lg border border-gray-200 shadow-sm">
       <table className="min-w-full border-collapse text-sm">
         <colgroup>
           <col style={{ minWidth: '280px' }} />
+          <col style={{ width: '110px' }} />
           <col style={{ width: '112px' }} /><col style={{ width: '62px' }} />
           <col style={{ width: '112px' }} /><col style={{ width: '62px' }} />
           {hasPeriod2 && (
@@ -319,6 +402,9 @@ export default function PLTable({
           <tr className="bg-slate-800 text-white">
             <th rowSpan={2} className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wider border-b border-slate-600 align-bottom">
               Line Item
+            </th>
+            <th rowSpan={2} className="px-2 py-2.5 text-left text-[11px] font-medium text-slate-400 border-b border-slate-600 align-bottom uppercase tracking-wider">
+              Owner
             </th>
             <th colSpan={4} className="px-3 py-2 text-center text-xs font-semibold uppercase tracking-wider border-b border-l border-slate-600">
               {period1.label}
@@ -349,34 +435,31 @@ export default function PLTable({
         </thead>
 
         {/* Body */}
-        <tbody className="bg-white divide-y divide-gray-100">
+        <tbody className="bg-white">
           {period1.data.sections.map(section => {
-            const hasItems    = section.groups.some(g => g.lineItems.length > 0)
+            const hasItems       = section.groups.some(g => g.lineItems.length > 0)
             if (!hasItems) return null
 
-            const isExpanded  = expandedSections.has(section.id)
-            const isOpex      = section.id === OPEX_ID
-            const nonEmpty    = section.groups.filter(g => g.lineItems.length > 0)
-            const multiGroup  = nonEmpty.length > 1
-            const calcRows    = showCalculatedRows
+            const isSectionOpen  = collapse.sections[section.id] ?? false
+            const isOpex         = section.id === OPEX_ID
+            const nonEmpty       = section.groups.filter(g => g.lineItems.length > 0)
+            const calcRows       = showCalculatedRows
               ? period1.data.calculatedRows.filter(r => r.afterSectionId === section.id)
               : []
-
-            const p2sec = p2?.sectionTotals[section.id] ?? ZERO
+            const p2sec          = p2?.sectionTotals[section.id] ?? ZERO
 
             return (
               <Fragment key={section.id}>
-                {/* ── Section header — always visible, always shows totals ── */}
+                {/* Section header — always visible, always shows totals */}
                 <tr
                   className="bg-[#1e2a3a] text-white cursor-pointer hover:bg-[#263548] transition-colors select-none"
                   onClick={() => toggleSection(section.id)}
                 >
                   <td className="px-3 py-2.5 text-xs font-bold uppercase tracking-wider">
-                    <span className="mr-2 text-slate-400 text-[10px]">
-                      {isExpanded ? '▼' : '▶'}
-                    </span>
+                    <span className="mr-2 text-slate-400 text-[10px]">{isSectionOpen ? '▼' : '▶'}</span>
                     {section.title}
                   </td>
+                  <OwnerCell py="py-2.5" />
                   <PCols a={section.total} gb={p1gb} ga={p1ga} py="py-2.5" />
                   {hasPeriod2 && (
                     <>
@@ -386,70 +469,19 @@ export default function PLTable({
                   )}
                 </tr>
 
-                {/* ── Expanded content ── */}
-                {isExpanded && (
-                  isOpex ? (
-                    // OPEX: each dept group is independently collapsible
-                    <>
-                      {nonEmpty.map(group => {
-                        const groupKey      = `${OPEX_ID}|${group.deptFullName}`
-                        const isGrpExpanded = expandedGroups.has(groupKey)
-                        const p2gsub        = p2?.groupSubs[`${section.id}|${group.deptFullName}`] ?? ZERO
-                        return (
-                          <Fragment key={groupKey}>
-                            {/* Group header */}
-                            <tr
-                              className="bg-gray-200 cursor-pointer hover:bg-gray-300 transition-colors select-none"
-                              onClick={() => toggleGroup(groupKey)}
-                            >
-                              <td className="pl-5 pr-3 py-2 text-xs font-semibold text-gray-700 uppercase tracking-wide">
-                                <span className="mr-2 text-gray-400 text-[10px]">
-                                  {isGrpExpanded ? '▼' : '▶'}
-                                </span>
-                                {group.deptFullName}
-                              </td>
-                              <PCols a={group.subtotal} gb={p1gb} ga={p1ga} py="py-2" />
-                              {hasPeriod2 && (
-                                <>
-                                  <PCols a={p2gsub} gb={p2!.grossBudget} ga={p2!.grossActual} py="py-2" />
-                                  <DeltaCell p1={group.subtotal.actual} p2={p2gsub.actual} revCtx={false} py="py-2" />
-                                </>
-                              )}
-                            </tr>
-                            {/* Group line items */}
-                            {isGrpExpanded && group.lineItems.map(li => renderLineItem(li, group, section))}
-                          </Fragment>
-                        )
-                      })}
-                      {renderSectionTotal(section)}
-                    </>
-                  ) : (
-                    // Non-OPEX: all groups expand together
-                    <>
-                      {nonEmpty.map(group => (
-                        <Fragment key={`${section.id}-${group.deptFullName}`}>
-                          {/* Non-clickable group label (only for multi-group sections) */}
-                          {multiGroup && (
-                            <tr className="bg-slate-50">
-                              <td
-                                colSpan={totalCols}
-                                className="px-5 py-1.5 text-xs font-semibold text-slate-500 uppercase tracking-wide"
-                              >
-                                {group.deptFullName}
-                              </td>
-                            </tr>
-                          )}
-                          {group.lineItems.map(li => renderLineItem(li, group, section))}
-                          {/* Group subtotal for multi-group sections */}
-                          {multiGroup && renderGroupSubtotal(group, section)}
-                        </Fragment>
-                      ))}
-                      {renderSectionTotal(section)}
-                    </>
-                  )
+                {/* Expanded section content */}
+                {isSectionOpen && (
+                  <>
+                    {nonEmpty.map(group =>
+                      isOpex
+                        ? renderOpexGroup(group, section)
+                        : renderStandardGroup(group, section)
+                    )}
+                    {renderSectionTotal(section)}
+                  </>
                 )}
 
-                {/* ── Calculated rows after this section — always visible ── */}
+                {/* Calculated rows — always visible */}
                 {calcRows.map(renderCalcRow)}
               </Fragment>
             )

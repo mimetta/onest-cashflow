@@ -28,6 +28,7 @@ export type PLLineItemRow = {
   categoryName: string
   isHrCategory: boolean
   lineItemType: 'REVENUE' | 'EXPENSE'
+  ownerName: string | null
 } & Amounts
 
 export type PLGroupData = {
@@ -37,6 +38,7 @@ export type PLGroupData = {
   subtotalLabel: string
   lineItems: PLLineItemRow[]
   subtotal: Amounts
+  ownerName: string | null
 }
 
 export type PLSectionData = {

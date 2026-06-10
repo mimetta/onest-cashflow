@@ -27,13 +27,18 @@ function buildPLDataFromMaps({
   year: number
   month: number
   lineItemsData: any[]
-  deptsData: { id: string; code: string; full_name: string }[]
+  deptsData: { id: string; code: string; full_name: string; owner_name?: string | null }[]
   budgetMap: Record<string, number>
   actualMap: Record<string, number>
 }): PLData {
-  // UUID lookup: `${code}|${full_name}` → id
-  const deptUuidMap: Record<string, string> = {}
-  for (const d of deptsData) deptUuidMap[`${d.code}|${d.full_name}`] = d.id
+  // UUID + owner lookup: `${code}|${full_name}` → id
+  const deptUuidMap:  Record<string, string>         = {}
+  const deptOwnerMap: Record<string, string | null>  = {}
+  for (const d of deptsData) {
+    const key = `${d.code}|${d.full_name}`
+    deptUuidMap[key]  = d.id
+    deptOwnerMap[d.id] = d.owner_name ?? null
+  }
 
   // dept key → line items
   const deptMap: Record<string, PLLineItemRow[]> = {}
@@ -51,6 +56,7 @@ function buildPLDataFromMaps({
       categoryName:  cat.name ?? '',
       isHrCategory:  cat.is_hr_category ?? false,
       lineItemType:  li.type ?? 'EXPENSE',
+      ownerName:     (li as any).owner_name ?? null,
       ...amounts(budget, actual),
     })
   }
@@ -60,6 +66,7 @@ function buildPLDataFromMaps({
   const sections: PLSectionData[] = PL_SECTIONS.map(section => {
     const groups: PLGroupData[] = section.groups.map(group => {
       const key       = `${group.deptCode}|${group.deptFullName}`
+      const deptId    = deptUuidMap[key] ?? ''
       const lineItems = (deptMap[key] ?? []).slice().sort((a, b) => {
         const c = a.categoryName.localeCompare(b.categoryName)
         return c !== 0 ? c : a.name.localeCompare(b.name)
@@ -68,10 +75,11 @@ function buildPLDataFromMaps({
       return {
         deptCode:     group.deptCode,
         deptFullName: group.deptFullName,
-        departmentId: deptUuidMap[key] ?? '',
+        departmentId: deptId,
         subtotalLabel: group.subtotalLabel,
         lineItems,
         subtotal,
+        ownerName:    deptOwnerMap[deptId] ?? null,
       }
     })
     const total = groups.reduce((acc, g) => addAmounts(acc, g.subtotal), ZERO)
@@ -100,10 +108,10 @@ export async function getPLData(year: number, month: number): Promise<PLData> {
 
   const [lineItemsRes, deptsRes, budgetsRes, expensesRes] = await Promise.all([
     supabase.from('line_items').select(`
-      id, name, subcategory_l1, type,
+      id, name, subcategory_l1, type, owner_name,
       categories ( name, is_hr_category, departments ( id, code, full_name ) )
     `).order('name'),
-    supabase.from('departments').select('id, code, full_name'),
+    supabase.from('departments').select('id, code, full_name, owner_name'),
     supabase.from('budget_submissions')
       .select('line_item_id, amount')
       .eq('year', year).eq('month', month).eq('status', 'approved'),
@@ -146,10 +154,10 @@ export async function getPLDataAggregated(
 
   const [lineItemsRes, deptsRes, expensesRes, ...budgetResults] = await Promise.all([
     supabase.from('line_items').select(`
-      id, name, subcategory_l1, type,
+      id, name, subcategory_l1, type, owner_name,
       categories ( name, is_hr_category, departments ( id, code, full_name ) )
     `).order('name'),
-    supabase.from('departments').select('id, code, full_name'),
+    supabase.from('departments').select('id, code, full_name, owner_name'),
     supabase.from('expenses')
       .select('line_item_id, amount')
       .eq('status', 'approved')
