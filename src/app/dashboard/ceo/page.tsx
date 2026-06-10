@@ -3,7 +3,7 @@ import { getCurrentUser } from '@/lib/auth'
 import { createSupabaseServerClient } from '@/lib/supabase-server'
 import NavHeader from '@/components/NavHeader'
 import CeoDashboard from './CeoDashboard'
-import { getPLData, getPLDataAggregated, getCalcRow, getComparisonPeriods } from '@/lib/pl-data'
+import { getPLData, getPLDataAggregated, getCalcRow, getComparisonPeriods, filterPLDataByHRCategory } from '@/lib/pl-data'
 import type { PLData } from '@/lib/pl-data'
 
 export type PendingRow = {
@@ -77,6 +77,13 @@ export default async function CeoDashboardPage({
   const opIncome    = getCalcRow(period1Data, 'operating_income')
   const netIncome   = getCalcRow(period1Data, 'net_income')
 
+  const hrData1 = filterPLDataByHRCategory(period1Data)
+  const hrData2 = filterPLDataByHRCategory(period2Data)
+
+  const hrBudget = hrData1.sections.reduce((sum, s) => sum + s.total.budget, 0)
+  const hrActual = hrData1.sections.reduce((sum, s) => sum + s.total.actual, 0)
+  const revenue1 = revSection?.total.actual ?? 0
+
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
       <NavHeader userName={user.full_name ?? user.email} role={user.role} />
@@ -87,11 +94,14 @@ export default async function CeoDashboardPage({
           period2={{ label: p2Label, data: period2Data }}
           deltaLabel={deltaLabel}
           summaryCards={{
-            revenue:     revSection?.total.actual ?? 0,
-            grossProfit: grossProfit?.actual      ?? 0,
-            opIncome:    opIncome?.actual         ?? 0,
-            netIncome:   netIncome?.actual        ?? 0,
+            revenue:     revenue1,
+            grossProfit: grossProfit?.actual ?? 0,
+            opIncome:    opIncome?.actual    ?? 0,
+            netIncome:   netIncome?.actual   ?? 0,
           }}
+          hrPeriod1={{ label: p1Label, data: hrData1 }}
+          hrPeriod2={{ label: p2Label, data: hrData2 }}
+          hrKpis={{ budget: hrBudget, actual: hrActual, revenue: revenue1 }}
           pendingSubmissions={pendingSubmissions}
         />
       </main>

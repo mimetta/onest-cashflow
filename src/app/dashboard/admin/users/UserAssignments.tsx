@@ -35,6 +35,131 @@ const ROLE_BADGE: Record<string, string> = {
   dept_head: 'bg-amber-100 text-amber-700',
 }
 
+const ALL_ROLES = ['admin', 'ceo', 'hr', 'dept_head'] as const
+type Role = typeof ALL_ROLES[number]
+
+// ── Invite Form ───────────────────────────────────────────────────────────────
+
+function InviteForm({ departments }: { departments: DeptRow[] }) {
+  const [email,         setEmail]         = useState('')
+  const [role,          setRole]          = useState<Role>('dept_head')
+  const [selectedDepts, setSelectedDepts] = useState<string[]>([])
+  const [status,        setStatus]        = useState<{ type: 'success' | 'error'; msg: string } | null>(null)
+  const [loading,       setLoading]       = useState(false)
+  const [open,          setOpen]          = useState(false)
+
+  function toggleDept(id: string) {
+    setSelectedDepts(prev => prev.includes(id) ? prev.filter(d => d !== id) : [...prev, id])
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    setLoading(true); setStatus(null)
+    try {
+      const res = await fetch('/api/admin/users/invite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, role, departmentIds: selectedDepts }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Invite failed')
+      setStatus({ type: 'success', msg: `Invitation sent to ${data.email}.` })
+      setEmail(''); setSelectedDepts([])
+    } catch (e: any) {
+      setStatus({ type: 'error', msg: e.message })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-gray-50 transition-colors"
+      >
+        <span className="text-sm font-semibold text-gray-800">Invite New User</span>
+        <span className="text-gray-400 text-xs">{open ? '▲' : '▼'}</span>
+      </button>
+
+      {open && (
+        <form onSubmit={handleSubmit} className="px-4 pb-4 pt-1 border-t border-gray-100 space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Email</label>
+              <input
+                type="email"
+                required
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                placeholder="user@example.com"
+                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-white"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Role</label>
+              <select
+                value={role}
+                onChange={e => { setRole(e.target.value as Role); setSelectedDepts([]) }}
+                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-white"
+              >
+                {ALL_ROLES.map(r => (
+                  <option key={r} value={r}>{r}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {role === 'dept_head' && departments.length > 0 && (
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-2">Departments</label>
+              <div className="flex flex-wrap gap-2">
+                {departments.map(d => (
+                  <button
+                    key={d.id}
+                    type="button"
+                    onClick={() => toggleDept(d.id)}
+                    className={`px-2.5 py-1 rounded-md text-xs font-medium border transition-colors ${
+                      selectedDepts.includes(d.id)
+                        ? 'bg-indigo-600 text-white border-indigo-600'
+                        : 'bg-white text-gray-600 border-gray-200 hover:border-indigo-400'
+                    }`}
+                  >
+                    {d.full_name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {status && (
+            <div className={`rounded-lg px-3 py-2 text-sm ${
+              status.type === 'success'
+                ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                : 'bg-red-50 text-red-800 border border-red-200'
+            }`}>
+              {status.msg}
+            </div>
+          )}
+
+          <div className="flex justify-end">
+            <button
+              type="submit"
+              disabled={loading || !email}
+              className="px-4 py-2 bg-[#1e2a3a] text-white text-sm font-medium rounded-lg disabled:opacity-40 hover:bg-[#263548] transition-colors"
+            >
+              {loading ? 'Sending…' : 'Send Invite'}
+            </button>
+          </div>
+        </form>
+      )}
+    </div>
+  )
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
+
 export default function UserAssignments({ users, departments, initialAssignments }: Props) {
   const [assignments, setAssignments] = useState<Assignment[]>(initialAssignments)
   const [errors,      setErrors]      = useState<Record<string, string>>({})
@@ -131,6 +256,9 @@ export default function UserAssignments({ users, departments, initialAssignments
           className="w-60 rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-white"
         />
       </div>
+
+      {/* Invite form */}
+      <InviteForm departments={departments} />
 
       {/* Table */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">

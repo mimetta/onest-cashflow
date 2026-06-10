@@ -1,18 +1,17 @@
 'use client'
 
-import { Fragment, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import type {
   PLData, PLSectionData, PLGroupData, PLLineItemRow, PLCalcRowData, Amounts,
 } from '@/lib/pl-types'
 import { ZERO, addAmounts } from '@/lib/pl-types'
-import EditableCell from './EditableCell'
 
 // ── Collapse state ────────────────────────────────────────────────────────────
 
 type CollapseState = {
-  sections:   Record<string, boolean>   // sectionId → isExpanded
-  depts:      Record<string, boolean>   // departmentId → isExpanded
-  categories: Record<string, boolean>  // `${departmentId}|${categoryName}` → isExpanded
+  sections:   Record<string, boolean>
+  depts:      Record<string, boolean>
+  categories: Record<string, boolean>
 }
 
 // ── Formatting ────────────────────────────────────────────────────────────────
@@ -22,7 +21,7 @@ function thb(n: number) {
   return `฿${Math.round(Math.abs(n)).toLocaleString('en-US')}`
 }
 
-function pctStr(v: number, base: number): string {
+function pctStr(v: number, base: number) {
   if (base === 0) return '—'
   return `${(v / base * 100).toFixed(1)}%`
 }
@@ -36,6 +35,7 @@ function deltaInfo(p1: number, p2: number): { text: string; pos: boolean | null 
 
 const OPEX_ID = 'operating_expenses'
 const REV_IDS = new Set(['revenue_channel', 'revenue_product'])
+const num      = 'text-right tabular-nums whitespace-nowrap'
 
 // ── P2 lookup map ─────────────────────────────────────────────────────────────
 
@@ -52,30 +52,21 @@ function buildP2Map(data: PLData): P2Map {
   for (const s of data.sections) {
     m.sectionTotals[s.id] = s.total
     if (s.id === 'revenue_channel') { m.grossBudget = s.total.budget; m.grossActual = s.total.actual }
-    for (const g of s.groups) {
-      for (const li of g.lineItems) {
+    for (const g of s.groups)
+      for (const li of g.lineItems)
         m.items[li.lineItemId] = { budget: li.budget, actual: li.actual, variance: li.variance }
-      }
-    }
   }
-  for (const r of data.calculatedRows) {
+  for (const r of data.calculatedRows)
     m.calcRows[r.id] = { budget: r.budget, actual: r.actual, variance: r.variance }
-  }
   return m
 }
 
 // ── Cell primitives ───────────────────────────────────────────────────────────
 
-const num = 'text-right tabular-nums whitespace-nowrap'
-
-function AmtCell({ n, py = 'py-1.5', editable, onSave }: {
-  n: number; py?: string; editable?: boolean; onSave?: (v: number) => Promise<void>
-}) {
+function AmtCell({ n, py = 'py-1.5' }: { n: number; py?: string }) {
   return (
-    <td className={`${num} px-3 ${py} text-xs`} onClick={e => editable && e.stopPropagation()}>
-      {editable && onSave
-        ? <EditableCell value={n} onSave={onSave} />
-        : <span className={n === 0 ? 'text-gray-300' : ''}>{thb(n)}</span>}
+    <td className={`${num} px-3 ${py} text-xs`}>
+      <span className={n === 0 ? 'text-gray-300' : ''}>{thb(n)}</span>
     </td>
   )
 }
@@ -93,17 +84,12 @@ function DeltaCell({ p1, p2, revCtx, py = 'py-1.5' }: {
   return <td className={`${num} px-3 ${py} text-[10px] ${cls}`}>{text}</td>
 }
 
-function PCols({ a, gb, ga, py = 'py-1.5', editable, onB, onA }: {
-  a: Amounts; gb: number; ga: number; py?: string
-  editable?: boolean
-  onB?: (v: number) => Promise<void>
-  onA?: (v: number) => Promise<void>
-}) {
+function PCols({ a, gb, ga, py = 'py-1.5' }: { a: Amounts; gb: number; ga: number; py?: string }) {
   return (
     <>
-      <AmtCell n={a.budget} py={py} editable={editable} onSave={onB} />
+      <AmtCell n={a.budget} py={py} />
       <PctCell v={a.budget} base={gb} py={py} />
-      <AmtCell n={a.actual} py={py} editable={editable} onSave={onA} />
+      <AmtCell n={a.actual} py={py} />
       <PctCell v={a.actual} base={ga} py={py} />
     </>
   )
@@ -115,6 +101,66 @@ function OwnerCell({ value, showDash, py = 'py-1.5' }: {
   return (
     <td className={`px-2 ${py} text-[11px] text-gray-400 whitespace-nowrap max-w-[110px] truncate`}>
       {value ?? (showDash ? '—' : '')}
+    </td>
+  )
+}
+
+// ── Inline-editable cell (admin / CEO only) ───────────────────────────────────
+
+function InlineEditCell({
+  value, py = 'py-1.5', onSave,
+}: {
+  value: number
+  py?: string
+  onSave: (v: number) => Promise<void>
+}) {
+  const [editing,    setEditing]    = useState(false)
+  const [displayVal, setDisplayVal] = useState(value)
+  const [flash,      setFlash]      = useState<'success' | 'error' | null>(null)
+
+  useEffect(() => { setDisplayVal(value) }, [value])
+
+  async function commit(raw: string) {
+    const v = parseFloat(raw)
+    setEditing(false)
+    if (isNaN(v) || v === displayVal) return
+    try {
+      await onSave(v)
+      setDisplayVal(v)
+      setFlash('success')
+    } catch {
+      setFlash('error')
+    }
+    setTimeout(() => setFlash(null), 300)
+  }
+
+  if (editing) {
+    return (
+      <td className={`px-1 ${py}`} onClick={e => e.stopPropagation()}>
+        <input
+          autoFocus
+          type="number"
+          defaultValue={displayVal}
+          onBlur={e => commit(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === 'Enter') e.currentTarget.blur()
+            if (e.key === 'Escape') setEditing(false)
+          }}
+          className="w-24 text-right text-xs tabular-nums border border-indigo-400 rounded px-1 py-0.5 focus:outline-none bg-white"
+        />
+      </td>
+    )
+  }
+
+  return (
+    <td
+      className={`${num} px-3 ${py} text-xs cursor-pointer group relative transition-colors ${
+        flash === 'success' ? 'bg-emerald-100' : flash === 'error' ? 'bg-red-100' : ''
+      }`}
+      onClick={e => { e.stopPropagation(); setEditing(true) }}
+    >
+      <span className={displayVal === 0 ? 'text-gray-300' : ''}>{thb(displayVal)}</span>
+      <span className="absolute right-1 top-1/2 -translate-y-1/2 text-[9px] text-gray-400 opacity-0 group-hover:opacity-40 pointer-events-none">✏</span>
     </td>
   )
 }
@@ -139,6 +185,8 @@ export interface PLTableProps {
   period1:             { label: string; data: PLData }
   period2?:            { label: string; data: PLData }
   deltaLabel?:         string
+  /** 'admin' or 'ceo' enables inline cell editing via /api/pl/update */
+  role?:               string
   onBudgetSave?:       (p: BudgetEditParams) => Promise<void>
   onActualSave?:       (p: ActualEditParams) => Promise<void>
   onRowClick?:         (lineItemId: string, lineItemName: string) => void
@@ -150,7 +198,7 @@ export interface PLTableProps {
 
 export default function PLTable({
   period1, period2, deltaLabel = 'Δ%',
-  onBudgetSave, onActualSave, onRowClick,
+  role, onBudgetSave, onActualSave, onRowClick,
   showCalculatedRows = true,
   defaultExpanded,
 }: PLTableProps) {
@@ -175,7 +223,8 @@ export default function PLTable({
 
   const p2         = useMemo(() => period2 ? buildP2Map(period2.data) : null, [period2])
   const hasPeriod2 = p2 !== null
-  const editable   = Boolean(onBudgetSave || onActualSave) && !hasPeriod2
+  // Role-based inline editing (admin/ceo) — disabled when comparing periods
+  const canEdit    = (role === 'admin' || role === 'ceo') && !hasPeriod2
 
   const [p1gb, p1ga] = useMemo(() => {
     const rev = period1.data.sections.find(s => s.id === 'revenue_channel')
@@ -195,6 +244,23 @@ export default function PLTable({
     setCollapse(prev => ({ ...prev, categories: { ...prev.categories, [catKey]: !(prev.categories[catKey] ?? false) } }))
   }
 
+  // ── Inline save helper ─────────────────────────────────────────────────────
+
+  function makeSave(li: PLLineItemRow, deptId: string, field: 'budget' | 'actual') {
+    return async (v: number) => {
+      const r = await fetch('/api/pl/update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          line_item_id:  li.lineItemId,
+          department_id: deptId,
+          year, month, field, value: v,
+        }),
+      })
+      if (!r.ok) { const d = await r.json(); throw new Error(d.error ?? 'Save failed') }
+    }
+  }
+
   // ── Row renderers ──────────────────────────────────────────────────────────
 
   function renderLineItem(
@@ -202,11 +268,12 @@ export default function PLTable({
   ) {
     const p2a    = p2?.items[li.lineItemId] ?? ZERO
     const revCtx = REV_IDS.has(section.id)
+
     return (
       <tr
         key={li.lineItemId}
         onClick={() => onRowClick?.(li.lineItemId, li.name)}
-        className={`border-b border-gray-100 ${onRowClick ? 'cursor-pointer hover:bg-indigo-50' : 'hover:bg-gray-50/30'}`}
+        className={`border-b border-gray-100 ${onRowClick ? 'cursor-pointer hover:bg-indigo-50' : canEdit ? '' : 'hover:bg-gray-50/30'}`}
         style={deepIndent ? { borderLeft: '2px solid #d1d5db' } : undefined}
       >
         <td className={`${deepIndent ? 'pl-[48px]' : 'pl-10'} pr-3 py-1.5 text-xs text-gray-700`}>
@@ -214,15 +281,21 @@ export default function PLTable({
           {li.subcategoryL1 && <div className="text-[10px] text-gray-400 mt-0.5">{li.subcategoryL1}</div>}
         </td>
         <OwnerCell value={li.ownerName} showDash />
-        <PCols
-          a={li} gb={p1gb} ga={p1ga} editable={editable}
-          onB={onBudgetSave
-            ? v => onBudgetSave({ lineItemId: li.lineItemId, departmentId: group.departmentId, year, month, amount: v })
-            : undefined}
-          onA={onActualSave
-            ? v => onActualSave({ lineItemId: li.lineItemId, monthDate, amount: v })
-            : undefined}
-        />
+        {canEdit ? (
+          <>
+            <InlineEditCell value={li.budget} onSave={makeSave(li, group.departmentId, 'budget')} />
+            <PctCell v={li.budget} base={p1gb} />
+            <InlineEditCell value={li.actual} onSave={makeSave(li, group.departmentId, 'actual')} />
+            <PctCell v={li.actual} base={p1ga} />
+          </>
+        ) : (
+          <>
+            <AmtCell n={li.budget} />
+            <PctCell v={li.budget} base={p1gb} />
+            <AmtCell n={li.actual} />
+            <PctCell v={li.actual} base={p1ga} />
+          </>
+        )}
         {hasPeriod2 && (
           <>
             <PCols a={p2a} gb={p2!.grossBudget} ga={p2!.grossActual} />
@@ -258,9 +331,7 @@ export default function PLTable({
     const p2a = p2?.calcRows[cr.id] ?? ZERO
     return (
       <tr key={cr.id} className="border-b-2 border-blue-200 bg-blue-50">
-        <td className="px-3 py-2.5 text-sm font-bold text-blue-900 uppercase tracking-wide">
-          {cr.label}
-        </td>
+        <td className="px-3 py-2.5 text-sm font-bold text-blue-900 uppercase tracking-wide">{cr.label}</td>
         <OwnerCell py="py-2.5" />
         <PCols a={cr} gb={p1gb} ga={p1ga} py="py-2.5" />
         {hasPeriod2 && (
@@ -273,21 +344,16 @@ export default function PLTable({
     )
   }
 
-  // Standard group: Section → Group header (collapsible, shows subtotal) → Line items
-  // Used for Revenue, CoGs, GP Deductions, CAPEX
   function renderStandardGroup(group: PLGroupData, section: PLSectionData) {
     const isExpanded = collapse.depts[group.departmentId] ?? false
     const p2gsub = p2
       ? group.lineItems.reduce((acc: Amounts, li) => addAmounts(acc, p2.items[li.lineItemId] ?? ZERO), ZERO)
       : ZERO
     const revCtx = REV_IDS.has(section.id)
-
     return (
       <Fragment key={group.departmentId}>
-        <tr
-          className="bg-gray-100 cursor-pointer hover:bg-gray-200 transition-colors select-none"
-          onClick={() => toggleDept(group.departmentId)}
-        >
+        <tr className="bg-gray-100 cursor-pointer hover:bg-gray-200 transition-colors select-none"
+            onClick={() => toggleDept(group.departmentId)}>
           <td className="pl-4 pr-3 py-2 text-[13px] font-medium text-gray-700">
             <span className="mr-2 text-gray-400 text-[10px]">{isExpanded ? '▼' : '▶'}</span>
             {group.deptFullName}
@@ -306,27 +372,20 @@ export default function PLTable({
     )
   }
 
-  // OpEx group: Section → Dept header (collapsible) → Category sub-headers (collapsible) → Line items
   function renderOpexGroup(group: PLGroupData, section: PLSectionData) {
     const isDeptExpanded = collapse.depts[group.departmentId] ?? false
     const p2gsub = p2
       ? group.lineItems.reduce((acc: Amounts, li) => addAmounts(acc, p2.items[li.lineItemId] ?? ZERO), ZERO)
       : ZERO
-
-    // Group line items by category, preserving sort order from the server
     const catMap = new Map<string, PLLineItemRow[]>()
     for (const li of group.lineItems) {
       if (!catMap.has(li.categoryName)) catMap.set(li.categoryName, [])
       catMap.get(li.categoryName)!.push(li)
     }
-
     return (
       <Fragment key={group.departmentId}>
-        {/* Dept header — shows dept total, no separate subtotal row */}
-        <tr
-          className="bg-gray-100 cursor-pointer hover:bg-gray-200 transition-colors select-none"
-          onClick={() => toggleDept(group.departmentId)}
-        >
+        <tr className="bg-gray-100 cursor-pointer hover:bg-gray-200 transition-colors select-none"
+            onClick={() => toggleDept(group.departmentId)}>
           <td className="pl-4 pr-3 py-2 text-[13px] font-medium text-gray-700">
             <span className="mr-2 text-gray-400 text-[10px]">{isDeptExpanded ? '▼' : '▶'}</span>
             {group.deptFullName}
@@ -340,23 +399,18 @@ export default function PLTable({
             </>
           )}
         </tr>
-
         {isDeptExpanded && Array.from(catMap.entries()).map(([catName, catItems]) => {
-          const catKey         = `${group.departmentId}|${catName}`
-          const isCatExpanded  = collapse.categories[catKey] ?? false
-          const catTotal       = catItems.reduce((acc: Amounts, li) => addAmounts(acc, li), ZERO)
-          const catP2Total     = p2
+          const catKey        = `${group.departmentId}|${catName}`
+          const isCatExpanded = collapse.categories[catKey] ?? false
+          const catTotal      = catItems.reduce((acc: Amounts, li) => addAmounts(acc, li), ZERO)
+          const catP2Total    = p2
             ? catItems.reduce((acc: Amounts, li) => addAmounts(acc, p2.items[li.lineItemId] ?? ZERO), ZERO)
             : ZERO
-
           return (
             <Fragment key={catKey}>
-              {/* Category sub-header */}
-              <tr
-                className="bg-white cursor-pointer hover:bg-gray-50 transition-colors select-none"
-                style={{ borderLeft: '2px solid #d1d5db' }}
-                onClick={() => toggleCategory(catKey)}
-              >
+              <tr className="bg-white cursor-pointer hover:bg-gray-50 transition-colors select-none"
+                  style={{ borderLeft: '2px solid #d1d5db' }}
+                  onClick={() => toggleCategory(catKey)}>
                 <td className="pl-[34px] pr-3 py-1.5 text-xs font-medium text-gray-500">
                   <span className="mr-2 text-gray-400 text-[10px]">{isCatExpanded ? '▼' : '▶'}</span>
                   {catName}
@@ -397,7 +451,6 @@ export default function PLTable({
           )}
         </colgroup>
 
-        {/* Header */}
         <thead className="sticky top-0 z-10">
           <tr className="bg-slate-800 text-white">
             <th rowSpan={2} className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wider border-b border-slate-600 align-bottom">
@@ -434,27 +487,21 @@ export default function PLTable({
           </tr>
         </thead>
 
-        {/* Body */}
         <tbody className="bg-white">
           {period1.data.sections.map(section => {
-            const hasItems       = section.groups.some(g => g.lineItems.length > 0)
+            const hasItems      = section.groups.some(g => g.lineItems.length > 0)
             if (!hasItems) return null
-
-            const isSectionOpen  = collapse.sections[section.id] ?? false
-            const isOpex         = section.id === OPEX_ID
-            const nonEmpty       = section.groups.filter(g => g.lineItems.length > 0)
-            const calcRows       = showCalculatedRows
+            const isSectionOpen = collapse.sections[section.id] ?? false
+            const isOpex        = section.id === OPEX_ID
+            const nonEmpty      = section.groups.filter(g => g.lineItems.length > 0)
+            const calcRows      = showCalculatedRows
               ? period1.data.calculatedRows.filter(r => r.afterSectionId === section.id)
               : []
-            const p2sec          = p2?.sectionTotals[section.id] ?? ZERO
-
+            const p2sec         = p2?.sectionTotals[section.id] ?? ZERO
             return (
               <Fragment key={section.id}>
-                {/* Section header — always visible, always shows totals */}
-                <tr
-                  className="bg-[#1e2a3a] text-white cursor-pointer hover:bg-[#263548] transition-colors select-none"
-                  onClick={() => toggleSection(section.id)}
-                >
+                <tr className="bg-[#1e2a3a] text-white cursor-pointer hover:bg-[#263548] transition-colors select-none"
+                    onClick={() => toggleSection(section.id)}>
                   <td className="px-3 py-2.5 text-xs font-bold uppercase tracking-wider">
                     <span className="mr-2 text-slate-400 text-[10px]">{isSectionOpen ? '▼' : '▶'}</span>
                     {section.title}
@@ -468,20 +515,12 @@ export default function PLTable({
                     </>
                   )}
                 </tr>
-
-                {/* Expanded section content */}
                 {isSectionOpen && (
                   <>
-                    {nonEmpty.map(group =>
-                      isOpex
-                        ? renderOpexGroup(group, section)
-                        : renderStandardGroup(group, section)
-                    )}
+                    {nonEmpty.map(g => isOpex ? renderOpexGroup(g, section) : renderStandardGroup(g, section))}
                     {renderSectionTotal(section)}
                   </>
                 )}
-
-                {/* Calculated rows — always visible */}
                 {calcRows.map(renderCalcRow)}
               </Fragment>
             )

@@ -21,7 +21,21 @@ export default async function DeptDashboardPage({
 }) {
   const user = await getCurrentUser()
   if (!user || user.role !== 'dept_head') redirect('/login')
-  if (user.departmentIds.length === 0) redirect('/login')
+
+  if (user.departmentIds.length === 0) {
+    return (
+      <div className="min-h-screen flex flex-col bg-gray-50">
+        <NavHeader userName={user.full_name ?? user.email} role={user.role} />
+        <main className="flex-1 flex items-center justify-center">
+          <div className="text-center max-w-sm">
+            <p className="text-4xl mb-4">&#9888;</p>
+            <h2 className="text-lg font-semibold text-gray-800 mb-2">No Department Assigned</h2>
+            <p className="text-sm text-gray-500">Contact your admin to be assigned to a department.</p>
+          </div>
+        </main>
+      </div>
+    )
+  }
 
   const sp   = await searchParams
   const mode = sp.mode ?? 'mom'
