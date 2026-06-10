@@ -49,8 +49,9 @@ export default function BudgetForm({ department, groups, submissions, expensesBy
         return v !== undefined && v.trim() !== ''
       })
       .map(item => ({
-        lineItemId: item.id,
-        amount: parseFloat(budgetValues[item.id]) || 0,
+        lineItemId:   item.id,
+        departmentId: department.id,
+        amount:       parseFloat(budgetValues[item.id]) || 0,
       }))
 
     if (amounts.length === 0) {

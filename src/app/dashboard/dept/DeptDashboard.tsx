@@ -36,9 +36,10 @@ export default function DeptDashboard({
   const allLineItems = period1.data.sections.flatMap(s =>
     s.groups.flatMap(g =>
       g.lineItems.map(li => ({
-        lineItemId:   li.lineItemId,
-        name:         li.name,
-        sectionTitle: s.title,
+        lineItemId:    li.lineItemId,
+        departmentId:  g.departmentId,
+        name:          li.name,
+        sectionTitle:  s.title,
         currentBudget: li.budget,
       }))
     )
@@ -60,8 +61,9 @@ export default function DeptDashboard({
     const amounts = allLineItems
       .filter(li => budgetAmounts[li.lineItemId] !== undefined && budgetAmounts[li.lineItemId].trim() !== '')
       .map(li => ({
-        lineItemId: li.lineItemId,
-        amount:     parseFloat(budgetAmounts[li.lineItemId]) || 0,
+        lineItemId:   li.lineItemId,
+        departmentId: li.departmentId,
+        amount:       parseFloat(budgetAmounts[li.lineItemId]) || 0,
       }))
       .filter(x => x.amount > 0)
 

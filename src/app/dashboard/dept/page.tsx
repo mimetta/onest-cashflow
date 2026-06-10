@@ -3,8 +3,8 @@ import { getCurrentUser } from '@/lib/auth'
 import NavHeader from '@/components/NavHeader'
 import DeptDashboard from './DeptDashboard'
 import {
-  getPLData, getPLDataAggregated, filterPLDataByDepartment,
-  getCalcRow, getComparisonPeriods, addAmounts, ZERO,
+  getPLData, getPLDataAggregated, filterPLDataByDepartments,
+  getComparisonPeriods, addAmounts, ZERO,
 } from '@/lib/pl-data'
 import type { PLData } from '@/lib/pl-data'
 
@@ -21,7 +21,7 @@ export default async function DeptDashboardPage({
 }) {
   const user = await getCurrentUser()
   if (!user || user.role !== 'dept_head') redirect('/login')
-  if (!user.department_id) redirect('/login')
+  if (user.departmentIds.length === 0) redirect('/login')
 
   const sp   = await searchParams
   const mode = sp.mode ?? 'mom'
@@ -37,16 +37,17 @@ export default async function DeptDashboardPage({
     fetchPeriod(p2),
   ])
 
-  const period1Data = filterPLDataByDepartment(raw1, user.department_id)
-  const period2Data = filterPLDataByDepartment(raw2, user.department_id)
+  const period1Data = filterPLDataByDepartments(raw1, user.departmentIds)
+  const period2Data = filterPLDataByDepartments(raw2, user.departmentIds)
 
   // KPI values from period1 (their dept only)
   const allItems = period1Data.sections.flatMap(s => s.groups.flatMap(g => g.lineItems))
   const totals   = allItems.reduce(addAmounts, ZERO)
 
-  const deptName = period1Data.sections
-    .flatMap(s => s.groups)
-    .find(g => true)?.deptFullName ?? '—'
+  const deptNames = [...new Set(
+    period1Data.sections.flatMap(s => s.groups).map(g => g.deptFullName)
+  )]
+  const deptName = deptNames.join(' / ') || '—'
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">

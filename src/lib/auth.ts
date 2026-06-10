@@ -7,13 +7,17 @@ export async function getCurrentUser(): Promise<User | null> {
   const { data: { user: authUser }, error: authError } = await supabase.auth.getUser()
   if (authError || !authUser) return null
 
-  const { data: userRecord, error: dbError } = await supabase
-    .from('users')
-    .select('*')
-    .eq('id', authUser.id)
-    .single()
+  const [userRes, deptsRes] = await Promise.all([
+    supabase.from('users').select('*').eq('id', authUser.id).single(),
+    supabase.from('user_departments').select('department_id').eq('user_id', authUser.id),
+  ])
 
-  if (dbError || !userRecord) return null
+  if (userRes.error || !userRes.data) return null
 
-  return userRecord as User
+  const departmentIds = (deptsRes.data ?? []).map((r: any) => r.department_id as string)
+
+  return {
+    ...(userRes.data as Omit<User, 'departmentIds'>),
+    departmentIds,
+  }
 }

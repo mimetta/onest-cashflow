@@ -205,9 +205,15 @@ function rebuildCalcRows(sections: PLSectionData[]): PLCalcRowData[] {
 
 /** Keep only the groups belonging to the given department UUID. */
 export function filterPLDataByDepartment(data: PLData, departmentId: string): PLData {
+  return filterPLDataByDepartments(data, [departmentId])
+}
+
+/** Keep only the groups belonging to any of the given department UUIDs. */
+export function filterPLDataByDepartments(data: PLData, departmentIds: string[]): PLData {
+  const idSet = new Set(departmentIds)
   const sections = data.sections
     .map(section => {
-      const groups = section.groups.filter(g => g.departmentId === departmentId)
+      const groups = section.groups.filter(g => idSet.has(g.departmentId))
       const total  = groups.reduce((acc, g) => addAmounts(acc, g.subtotal), ZERO)
       return { ...section, groups, total }
     })

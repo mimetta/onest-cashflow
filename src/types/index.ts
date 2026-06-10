@@ -34,6 +34,8 @@ export interface User {
   email: string
   role: Role
   department_id: string | null
+  /** All department UUIDs from the user_departments junction table. */
+  departmentIds: string[]
   full_name: string | null
   created_at: string
 }

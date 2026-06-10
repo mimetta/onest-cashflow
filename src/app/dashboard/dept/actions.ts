@@ -5,26 +5,30 @@ import { createSupabaseServerClient } from '@/lib/supabase-server'
 import { getCurrentUser } from '@/lib/auth'
 
 export async function submitCategoryBudgets(
-  lineItemAmounts: { lineItemId: string; amount: number }[],
+  lineItemAmounts: { lineItemId: string; departmentId: string; amount: number }[],
   year: number,
   month: number
 ) {
   const user = await getCurrentUser()
-  if (!user || user.role !== 'dept_head' || !user.department_id) {
+  if (!user || user.role !== 'dept_head' || user.departmentIds.length === 0) {
     throw new Error('Unauthorized')
   }
 
+  const allowedDepts = new Set(user.departmentIds)
+  const unauthorized = lineItemAmounts.some(r => !allowedDepts.has(r.departmentId))
+  if (unauthorized) throw new Error('Unauthorized: department mismatch')
+
   const supabase = await createSupabaseServerClient()
 
-  const rows = lineItemAmounts.map(({ lineItemId, amount }) => ({
-    line_item_id: lineItemId,
-    department_id: user.department_id!,
-    user_id: user.id,
+  const rows = lineItemAmounts.map(({ lineItemId, departmentId, amount }) => ({
+    line_item_id:  lineItemId,
+    department_id: departmentId,
+    user_id:       user.id,
     year,
     month,
     amount,
-    status: 'submitted' as const,
-    submitted_at: new Date().toISOString(),
+    status:        'submitted' as const,
+    submitted_at:  new Date().toISOString(),
   }))
 
   const { error } = await supabase
