@@ -11,15 +11,16 @@ export default async function ImportPage() {
   const supabase = await createSupabaseServerClient()
   const { data } = await supabase.from('line_items').select(`
     id, name,
-    categories ( name, departments ( id, code ) )
+    categories ( name, departments ( id, code, full_name ) )
   `)
 
   const validKeys = (data ?? []).map((li: any) => ({
     lineItemId:   li.id as string,
     lineItemName: li.name as string,
-    deptId:       li.categories?.departments?.id   as string,
-    deptCode:     li.categories?.departments?.code as string,
-    categoryName: li.categories?.name              as string,
+    deptId:       li.categories?.departments?.id        as string,
+    deptCode:     li.categories?.departments?.code      as string,
+    deptFullName: li.categories?.departments?.full_name as string,
+    categoryName: li.categories?.name                   as string,
   })).filter(k => k.deptId && k.deptCode)
 
   return (

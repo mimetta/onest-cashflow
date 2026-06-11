@@ -8,6 +8,7 @@ interface ValidKey {
   lineItemName: string
   deptId:       string
   deptCode:     string
+  deptFullName: string
   categoryName: string
 }
 
@@ -42,11 +43,17 @@ function parseCsv(text: string): string[][] {
   })
 }
 
+function n(s: string) { return s.trim().toLowerCase() }
+
 function buildLookup(validKeys: ValidKey[]): Map<string, { lineItemId: string; deptId: string }> {
   const m = new Map<string, { lineItemId: string; deptId: string }>()
   for (const k of validKeys) {
-    const key = `${k.lineItemName.toLowerCase()}|${k.deptCode.toLowerCase()}|${k.categoryName.toLowerCase()}`
-    m.set(key, { lineItemId: k.lineItemId, deptId: k.deptId })
+    const resolved = { lineItemId: k.lineItemId, deptId: k.deptId }
+    const namePart = n(k.lineItemName)
+    const catPart  = n(k.categoryName)
+    // Register under both dept code and dept full_name so either matches
+    m.set(`${namePart}|${n(k.deptCode)}|${catPart}`,      resolved)
+    m.set(`${namePart}|${n(k.deptFullName)}|${catPart}`,  resolved)
   }
   return m
 }
@@ -74,7 +81,7 @@ function parseRows(lines: string[][], lookup: Map<string, { lineItemId: string; 
     else if (!year || isNaN(year)) error = 'Invalid year'
     else if (isNaN(amount)) error = 'Invalid amount'
 
-    const key     = `${name.toLowerCase()}|${dept.toLowerCase()}|${category.toLowerCase()}`
+    const key     = `${n(name)}|${n(dept)}|${n(category)}`
     const matched = !error ? lookup.get(key) : undefined
     if (!error && !matched) error = `No match for "${name}" / ${dept} / ${category}`
 
@@ -130,11 +137,12 @@ export default function ImportClient({ validKeys }: Props) {
       const payload = {
         type: tab,
         rows: valid.map(r => ({
-          line_item_id:  r.lineItemId!,
-          department_id: r.departmentId!,
-          year:          r.year,
-          month:         r.monthNum!,
-          amount:        r.amount,
+          name:     r.name,
+          dept:     r.dept,
+          category: r.category,
+          month:    r.monthNum!,
+          year:     r.year,
+          amount:   r.amount,
         })),
       }
       const res = await fetch('/api/admin/import', {
