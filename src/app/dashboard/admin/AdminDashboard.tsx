@@ -5,9 +5,8 @@ import Link from 'next/link'
 import type { PLData, MonthColumn } from '@/lib/pl-types'
 import PLTable from '@/components/PLTable'
 import MonthRangeNavigator from '@/components/MonthRangeNavigator'
-import { getLineItemHistory, type HistoryRow } from './actions'
 
-function thb(n: number) { return `฿${Math.round(n).toLocaleString('en-US')}` }
+function thb(n: number) { return `฿${Math.round(Math.abs(n)).toLocaleString('en-US')}` }
 
 function KpiCard({ title, value, sub }: { title: string; value: number; sub?: string }) {
   return (
@@ -19,7 +18,71 @@ function KpiCard({ title, value, sub }: { title: string; value: number; sub?: st
   )
 }
 
-const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+// ── History drawer types ────────────────────────────────────────────────────────
+
+type HistoryEntry = {
+  id: string
+  amount: number
+  status: string
+  version: number
+  submitted_at: string | null
+  note: string | null
+  submitted_by_name: string
+}
+
+type MonthHistory = {
+  month: string    // "YYYY-MM-DD"
+  budget: number
+  actual: number
+  variance: number
+  entries: HistoryEntry[]
+}
+
+type HistoryData = {
+  lineItem: { name: string; categoryName: string; deptName: string }
+  months: MonthHistory[]
+}
+
+type Drawer = {
+  lineItemId:    string
+  lineItemName:  string
+  loading:       boolean
+  error:         string | null
+  data:          HistoryData | null
+  selectedMonth: string | null
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+const MN = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+
+function fmtMonthKey(s: string): string {
+  const [y, m] = s.split('-').map(Number)
+  return `${MN[m - 1]} ${y}`
+}
+
+function fmtDateTime(iso: string | null): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) +
+         ' · ' + d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+}
+
+function statusBadge(status: string, isCurrent: boolean) {
+  if (isCurrent)              return { label: 'active',   cls: 'bg-[#1e2a3a]/10 text-[#1e2a3a]' }
+  if (status === 'approved')  return { label: 'approved', cls: 'bg-emerald-100 text-emerald-700' }
+  if (status === 'submitted') return { label: 'pending',  cls: 'bg-amber-100 text-amber-700' }
+  return                             { label: 'rejected', cls: 'bg-red-100 text-red-600' }
+}
+
+function dotCls(status: string, isCurrent: boolean): string {
+  if (isCurrent)              return 'bg-[#1e2a3a]'
+  if (status === 'approved')  return 'bg-emerald-500'
+  if (status === 'submitted') return 'bg-amber-400'
+  return 'bg-gray-300'
+}
+
+// ── Main component ─────────────────────────────────────────────────────────────
 
 interface Props {
   mode:        string
@@ -30,13 +93,6 @@ interface Props {
   deltaLabel?: string
   summaryCards: { revenue: number; grossProfit: number; opIncome: number; netIncome: number }
   userId?:     string
-}
-
-interface HistoryPanel {
-  lineItemId:   string
-  lineItemName: string
-  rows:         HistoryRow[]
-  loading:      boolean
 }
 
 export default function AdminDashboard({
@@ -50,13 +106,237 @@ export default function AdminDashboard({
     ? months[months.length - 1].label
     : (period1?.label ?? '')
 
-  const [history, setHistory] = useState<HistoryPanel | null>(null)
+  const [drawer, setDrawer] = useState<Drawer | null>(null)
 
   async function handleRowClick(lineItemId: string, lineItemName: string) {
-    setHistory({ lineItemId, lineItemName, rows: [], loading: true })
-    const rows = await getLineItemHistory(lineItemId)
-    setHistory(prev =>
-      prev?.lineItemId === lineItemId ? { ...prev, rows, loading: false } : prev
+    setDrawer({ lineItemId, lineItemName, loading: true, error: null, data: null, selectedMonth: null })
+    try {
+      const res  = await fetch(`/api/pl/history?line_item_id=${encodeURIComponent(lineItemId)}`)
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error ?? 'Failed to load history')
+      const data = json as HistoryData
+      setDrawer(prev =>
+        prev?.lineItemId === lineItemId
+          ? { ...prev, loading: false, data, selectedMonth: data.months[0]?.month ?? null }
+          : prev
+      )
+    } catch (e: any) {
+      setDrawer(prev =>
+        prev?.lineItemId === lineItemId
+          ? { ...prev, loading: false, error: e.message }
+          : prev
+      )
+    }
+  }
+
+  async function handleStatusChange(entryId: string, newStatus: 'approved' | 'rejected') {
+    if (!drawer) return
+    const res  = await fetch('/api/pl/history', {
+      method:  'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ id: entryId, status: newStatus }),
+    })
+    if (!res.ok) return
+    // Refresh drawer data
+    const refresh  = await fetch(`/api/pl/history?line_item_id=${encodeURIComponent(drawer.lineItemId)}`)
+    const json     = await refresh.json()
+    if (refresh.ok) {
+      const data = json as HistoryData
+      setDrawer(prev => prev ? { ...prev, data, selectedMonth: prev.selectedMonth } : prev)
+    }
+  }
+
+  // ── Drawer render ─────────────────────────────────────────────────────────
+
+  function renderDrawer() {
+    if (!drawer) return null
+
+    const activeMH: MonthHistory | undefined = drawer.data?.months.find(
+      m => m.month === drawer.selectedMonth
+    )
+
+    return (
+      <>
+        <div className="fixed inset-0 z-40 bg-black/10" onClick={() => setDrawer(null)} />
+        <div className="fixed inset-y-0 right-0 w-[420px] bg-white shadow-2xl border-l border-gray-200 z-50 flex flex-col">
+
+          {/* Header */}
+          <div className="px-5 py-4 border-b border-gray-200">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h3 className="font-semibold text-gray-900 text-sm truncate">
+                  {drawer.data?.lineItem.name ?? drawer.lineItemName}
+                </h3>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  Budget history
+                  {drawer.data?.lineItem.deptName && (
+                    <> · {drawer.data.lineItem.deptName}</>
+                  )}
+                  {drawer.data?.lineItem.categoryName && (
+                    <> · {drawer.data.lineItem.categoryName}</>
+                  )}
+                </p>
+              </div>
+              <button
+                onClick={() => setDrawer(null)}
+                className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-700 flex-shrink-0"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+
+          {drawer.loading && (
+            <div className="flex-1 flex items-center justify-center text-sm text-gray-400">
+              Loading…
+            </div>
+          )}
+
+          {drawer.error && (
+            <div className="flex-1 flex items-center justify-center px-6">
+              <p className="text-sm text-red-500 text-center">{drawer.error}</p>
+            </div>
+          )}
+
+          {!drawer.loading && !drawer.error && drawer.data && (
+            <div className="flex-1 overflow-y-auto flex flex-col">
+
+              {/* Month tabs */}
+              {drawer.data.months.length > 0 ? (
+                <>
+                  <div className="flex gap-1 overflow-x-auto px-4 pt-3 pb-0 border-b border-gray-100 flex-shrink-0">
+                    {drawer.data.months.map(mh => (
+                      <button
+                        key={mh.month}
+                        onClick={() => setDrawer(prev => prev ? { ...prev, selectedMonth: mh.month } : prev)}
+                        className={`px-3 py-1.5 text-xs font-medium rounded-t-md whitespace-nowrap transition-colors border border-b-0 ${
+                          mh.month === drawer.selectedMonth
+                            ? 'bg-white border-gray-200 text-gray-900 -mb-px'
+                            : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                        }`}
+                      >
+                        {fmtMonthKey(mh.month)}
+                      </button>
+                    ))}
+                  </div>
+
+                  {activeMH ? (
+                    <div className="flex-1 overflow-y-auto">
+                      {/* KPI cards */}
+                      <div className="grid grid-cols-3 gap-3 px-4 py-4">
+                        {[
+                          { label: 'Budget',   value: activeMH.budget,   color: 'text-gray-900' },
+                          { label: 'Actual',   value: activeMH.actual,   color: 'text-gray-900' },
+                          { label: 'Variance', value: activeMH.variance,
+                            color: activeMH.variance >= 0 ? 'text-emerald-600' : 'text-red-500' },
+                        ].map(({ label, value, color }) => (
+                          <div key={label} className="bg-gray-50 rounded-lg p-3 border border-gray-100">
+                            <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">{label}</p>
+                            <p className={`mt-1 text-sm font-bold tabular-nums ${color}`}>
+                              {value < 0 ? '-' : ''}{thb(value)}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Version timeline */}
+                      {activeMH.entries.length === 0 ? (
+                        <p className="px-4 py-6 text-sm text-gray-400 text-center">
+                          No budget history for this period
+                        </p>
+                      ) : (
+                        <div className="px-4 pb-6">
+                          <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-3">
+                            Version history
+                          </p>
+                          <div className="relative">
+                            {activeMH.entries.map((entry, i) => {
+                              const isCurrentActive =
+                                i === 0 && entry.status === 'approved'
+                              const badge = statusBadge(entry.status, isCurrentActive)
+                              const prevAmt = activeMH.entries[i + 1]?.amount
+                              const delta   = prevAmt != null ? entry.amount - prevAmt : null
+                              const isPending = entry.status === 'submitted'
+
+                              return (
+                                <div key={entry.id} className="flex gap-3 mb-4 last:mb-0">
+                                  {/* Dot + line */}
+                                  <div className="flex flex-col items-center flex-shrink-0 w-4">
+                                    <div className={`w-3 h-3 rounded-full mt-0.5 flex-shrink-0 ${dotCls(entry.status, isCurrentActive)}`} />
+                                    {i < activeMH.entries.length - 1 && (
+                                      <div className="w-px flex-1 bg-gray-200 mt-1" />
+                                    )}
+                                  </div>
+
+                                  {/* Content */}
+                                  <div className="flex-1 min-w-0 pb-1">
+                                    <div className="flex items-center justify-between gap-2">
+                                      <div className="flex items-center gap-1.5 min-w-0">
+                                        <span className="text-[10px] text-gray-500">v{entry.version}</span>
+                                        <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium ${badge.cls}`}>
+                                          {badge.label}
+                                        </span>
+                                      </div>
+                                      <span className="text-sm font-semibold tabular-nums text-gray-900 flex-shrink-0">
+                                        {thb(entry.amount)}
+                                      </span>
+                                    </div>
+
+                                    <p className="text-[11px] text-gray-400 mt-0.5">
+                                      {entry.submitted_by_name}
+                                      {entry.submitted_at && (
+                                        <> · {fmtDateTime(entry.submitted_at)}</>
+                                      )}
+                                    </p>
+
+                                    {delta != null && delta !== 0 && (
+                                      <p className={`text-[11px] mt-0.5 font-medium ${delta > 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                                        {delta > 0 ? '↑' : '↓'} {thb(Math.abs(delta))} from previous
+                                      </p>
+                                    )}
+
+                                    {entry.note && (
+                                      <p className="text-[11px] text-gray-400 italic mt-0.5 truncate" title={entry.note}>
+                                        {entry.note}
+                                      </p>
+                                    )}
+
+                                    {/* Pending actions */}
+                                    {isPending && (
+                                      <div className="flex gap-2 mt-2">
+                                        <button
+                                          onClick={() => handleStatusChange(entry.id, 'approved')}
+                                          className="px-2.5 py-1 text-[11px] font-medium bg-emerald-600 text-white rounded hover:bg-emerald-700 transition-colors"
+                                        >
+                                          Approve
+                                        </button>
+                                        <button
+                                          onClick={() => handleStatusChange(entry.id, 'rejected')}
+                                          className="px-2.5 py-1 text-[11px] font-medium bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
+                                        >
+                                          Reject
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : null}
+                </>
+              ) : (
+                <div className="flex-1 flex items-center justify-center px-6">
+                  <p className="text-sm text-gray-400 text-center">No budget history found</p>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </>
     )
   }
 
@@ -98,62 +378,7 @@ export default function AdminDashboard({
       ) : null}
 
       {/* History slide-over */}
-      {history && (
-        <>
-          <div className="fixed inset-0 z-40 bg-black/10" onClick={() => setHistory(null)} />
-          <div className="fixed inset-y-0 right-0 w-96 bg-white shadow-2xl border-l border-gray-200 z-50 flex flex-col">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
-              <div>
-                <h3 className="font-semibold text-gray-900 text-sm">{history.lineItemName}</h3>
-                <p className="text-xs text-gray-500">Budget history</p>
-              </div>
-              <button
-                onClick={() => setHistory(null)}
-                className="p-1 rounded hover:bg-gray-100 text-gray-500 hover:text-gray-700"
-              >
-                ✕
-              </button>
-            </div>
-            <div className="flex-1 overflow-y-auto">
-              {history.loading ? (
-                <div className="p-8 text-center text-gray-400 text-sm">Loading…</div>
-              ) : history.rows.length === 0 ? (
-                <div className="p-8 text-center text-gray-400 text-sm">No budget history</div>
-              ) : (
-                <table className="min-w-full text-xs">
-                  <thead className="sticky top-0 bg-gray-50 border-b border-gray-200">
-                    <tr>
-                      {['Period','Amount','Status','By'].map(h => (
-                        <th key={h} className="px-3 py-2 text-left text-gray-500 font-medium">{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {history.rows.map(r => (
-                      <tr key={r.id} className="hover:bg-gray-50">
-                        <td className="px-3 py-2 text-gray-700">{MONTHS[r.month - 1]} {r.year}</td>
-                        <td className="px-3 py-2 font-medium tabular-nums">{thb(r.amount)}</td>
-                        <td className="px-3 py-2">
-                          <span className={`inline-block px-1.5 py-0.5 rounded text-xs font-medium ${
-                            r.status === 'approved' ? 'bg-emerald-100 text-emerald-700'
-                            : r.status === 'rejected' ? 'bg-red-100 text-red-700'
-                            : 'bg-yellow-100 text-yellow-700'
-                          }`}>
-                            {r.status}
-                          </span>
-                        </td>
-                        <td className="px-3 py-2 text-gray-500 truncate max-w-[80px]">
-                          {r.submittedByName}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          </div>
-        </>
-      )}
+      {renderDrawer()}
     </div>
   )
 }
