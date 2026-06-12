@@ -1,10 +1,10 @@
 'use client'
 
 import { Suspense, useState } from 'react'
-import type { PLData } from '@/lib/pl-types'
+import type { PLData, MonthColumn } from '@/lib/pl-types'
 import type { PendingRow } from './page'
 import PLTable from '@/components/PLTable'
-import PeriodSelector from '@/components/PeriodSelector'
+import MonthRangeNavigator from '@/components/MonthRangeNavigator'
 import { approveSubmission, rejectSubmission } from './actions'
 
 function thb(n: number) { return `฿${Math.round(n).toLocaleString('en-US')}` }
@@ -22,26 +22,32 @@ function KpiCard({ title, value, sub }: { title: string; value: number; sub?: st
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
 
 interface Props {
-  mode: string
-  period1: { label: string; data: PLData }
-  period2: { label: string; data: PLData }
-  deltaLabel: string
+  mode:        string
+  anchor?:     string
+  months?:     MonthColumn[]
+  period1?:    { label: string; data: PLData }
+  period2?:    { label: string; data: PLData }
+  deltaLabel?: string
   summaryCards: { revenue: number; grossProfit: number; opIncome: number; netIncome: number }
-  hrPeriod1: { label: string; data: PLData }
-  hrPeriod2: { label: string; data: PLData }
-  hrKpis:    { budget: number; actual: number; revenue: number }
+  hrPeriod1:   { label: string; data: PLData }
+  hrPeriod2:   { label: string; data: PLData }
+  hrKpis:      { budget: number; actual: number; revenue: number }
   pendingSubmissions: PendingRow[]
 }
 
 export default function CeoDashboard({
-  mode, period1, period2, deltaLabel, summaryCards,
-  hrPeriod1, hrPeriod2, hrKpis, pendingSubmissions,
+  mode, anchor = '', months, period1, period2, deltaLabel,
+  summaryCards, hrPeriod1, hrPeriod2, hrKpis, pendingSubmissions,
 }: Props) {
   const { revenue, grossProfit, opIncome, netIncome } = summaryCards
   const grossMargin = revenue > 0 ? `${((grossProfit / revenue) * 100).toFixed(1)}% margin` : undefined
   const netMargin   = revenue > 0 ? `${((netIncome / revenue) * 100).toFixed(1)}% net margin` : undefined
   const hrVariance  = hrKpis.budget - hrKpis.actual
   const hrPct       = hrKpis.revenue > 0 ? `${(hrKpis.actual / hrKpis.revenue * 100).toFixed(1)}% of revenue` : undefined
+
+  const periodLabel = months
+    ? months[months.length - 1].label
+    : (period1?.label ?? '')
 
   const [activeTab, setActiveTab] = useState<'pl' | 'hr'>('pl')
 
@@ -51,7 +57,6 @@ export default function CeoDashboard({
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-3">
           <h1 className="text-xl font-bold text-gray-900">P&amp;L Dashboard</h1>
-          {/* Tab switcher */}
           <div className="flex rounded-lg overflow-hidden border border-gray-200">
             <button
               onClick={() => setActiveTab('pl')}
@@ -75,28 +80,24 @@ export default function CeoDashboard({
             </button>
           </div>
         </div>
-        <Suspense><PeriodSelector current={mode} /></Suspense>
+        <Suspense><MonthRangeNavigator mode={mode} anchor={anchor} /></Suspense>
       </div>
 
       {activeTab === 'pl' && (
         <>
-          {/* KPI cards */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <KpiCard title="Total Revenue"     value={revenue}     sub={`${period1.label} actual`} />
+            <KpiCard title="Total Revenue"     value={revenue}     sub={`${periodLabel} actual`} />
             <KpiCard title="Gross Profit"      value={grossProfit} sub={grossMargin} />
             <KpiCard title="Operating Income"  value={opIncome} />
             <KpiCard title="Net Income"        value={netIncome}   sub={netMargin} />
           </div>
 
-          {/* P&L Table with inline editing for CEO */}
-          <PLTable
-            period1={period1}
-            period2={period2}
-            deltaLabel={deltaLabel}
-            role="ceo"
-          />
+          {months ? (
+            <PLTable months={months} role="ceo" />
+          ) : period1 ? (
+            <PLTable period1={period1} period2={period2} deltaLabel={deltaLabel} role="ceo" />
+          ) : null}
 
-          {/* Budget approvals */}
           <section>
             <h2 className="text-base font-semibold text-gray-800 mb-3">
               Pending Approvals
@@ -106,7 +107,6 @@ export default function CeoDashboard({
                 </span>
               )}
             </h2>
-
             {pendingSubmissions.length === 0 ? (
               <p className="text-sm text-gray-400 py-4">No pending approvals</p>
             ) : (
@@ -162,21 +162,13 @@ export default function CeoDashboard({
 
       {activeTab === 'hr' && (
         <>
-          {/* HR KPI cards */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <KpiCard title="HR Budget"       value={hrKpis.budget}  sub={hrPeriod1.label} />
             <KpiCard title="HR Actual"       value={hrKpis.actual}  sub={hrPct} />
             <KpiCard title="Budget Variance" value={hrVariance}     sub={hrVariance >= 0 ? 'under budget' : 'over budget'} />
-            <KpiCard title="HR Headcount %" value={hrKpis.revenue > 0 ? hrKpis.actual : 0} sub={hrPct ?? 'n/a'} />
+            <KpiCard title="HR Headcount %"  value={hrKpis.revenue > 0 ? hrKpis.actual : 0} sub={hrPct ?? 'n/a'} />
           </div>
-
-          {/* HR-filtered P&L Table — read-only */}
-          <PLTable
-            period1={hrPeriod1}
-            period2={hrPeriod2}
-            deltaLabel={deltaLabel}
-            defaultExpanded="all"
-          />
+          <PLTable period1={hrPeriod1} period2={hrPeriod2} deltaLabel={deltaLabel} defaultExpanded="all" />
         </>
       )}
     </div>

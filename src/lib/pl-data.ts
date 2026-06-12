@@ -9,7 +9,7 @@ import {
 
 // Re-export everything so server components can import from one place
 export type {
-  Amounts, PLLineItemRow, PLGroupData, PLSectionData, PLCalcRowData, PLData,
+  Amounts, PLLineItemRow, PLGroupData, PLSectionData, PLCalcRowData, PLData, MonthColumn,
 } from './pl-types'
 export { ZERO, amounts, addAmounts } from './pl-types'
 
@@ -67,10 +67,7 @@ function buildPLDataFromMaps({
     const groups: PLGroupData[] = section.groups.map(group => {
       const key       = `${group.deptCode}|${group.deptFullName}`
       const deptId    = deptUuidMap[key] ?? ''
-      const lineItems = (deptMap[key] ?? []).slice().sort((a, b) => {
-        const c = a.categoryName.localeCompare(b.categoryName)
-        return c !== 0 ? c : a.name.localeCompare(b.name)
-      })
+      const lineItems = (deptMap[key] ?? []).slice().sort((a, b) => a.name.localeCompare(b.name))
       const subtotal  = lineItems.reduce(addAmounts, ZERO)
       return {
         deptCode:     group.deptCode,
@@ -181,6 +178,55 @@ export async function getPLDataAggregated(
     lineItemsData: lineItemsRes.data ?? [],
     deptsData:     deptsRes.data     ?? [],
     budgetMap, actualMap,
+  })
+}
+
+/**
+ * Fetch P&L data for each period in one batch of 4 DB queries (vs 4×N).
+ * Returns one PLData per period in the same order as the input.
+ */
+export async function getPLDataForMonths(
+  periods: Array<{ year: number; month: number }>,
+): Promise<PLData[]> {
+  if (periods.length === 0) return []
+
+  const supabase   = await createSupabaseServerClient()
+  const monthDates = periods.map(p => `${p.year}-${String(p.month).padStart(2, '0')}-01`)
+
+  const [lineItemsRes, deptsRes, budgetsRes, expensesRes] = await Promise.all([
+    supabase.from('line_items').select(`
+      id, name, subcategory_l1, type, owner_name,
+      categories ( name, is_hr_category, departments ( id, code, full_name ) )
+    `).order('name'),
+    supabase.from('departments').select('id, code, full_name, owner_name'),
+    supabase.from('budget_submissions')
+      .select('line_item_id, amount, month')
+      .in('month', monthDates).eq('status', 'approved'),
+    supabase.from('expenses')
+      .select('line_item_id, amount, month')
+      .eq('status', 'approved').in('month', monthDates),
+  ])
+
+  return periods.map((p, i) => {
+    const md = monthDates[i]
+    const budgetMap: Record<string, number> = {}
+    for (const r of (budgetsRes.data ?? [])) {
+      if (String(r.month).slice(0, 10) === md)
+        budgetMap[r.line_item_id] = (budgetMap[r.line_item_id] ?? 0) + Number(r.amount)
+    }
+    const actualMap: Record<string, number> = {}
+    for (const r of (expensesRes.data ?? [])) {
+      if (String(r.month).slice(0, 10) === md)
+        actualMap[r.line_item_id] = (actualMap[r.line_item_id] ?? 0) + Number(r.amount)
+    }
+    return buildPLDataFromMaps({
+      year:         p.year,
+      month:        p.month,
+      lineItemsData: lineItemsRes.data ?? [],
+      deptsData:    deptsRes.data     ?? [],
+      budgetMap,
+      actualMap,
+    })
   })
 }
 

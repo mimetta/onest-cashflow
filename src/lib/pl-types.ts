@@ -63,3 +63,10 @@ export type PLData = {
   sections: PLSectionData[]
   calculatedRows: PLCalcRowData[]
 }
+
+export type MonthColumn = {
+  year:  number
+  month: number
+  label: string
+  data:  PLData
+}

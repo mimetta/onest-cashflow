@@ -2,9 +2,9 @@
 
 import { useState, Suspense } from 'react'
 import Link from 'next/link'
-import type { PLData } from '@/lib/pl-types'
+import type { PLData, MonthColumn } from '@/lib/pl-types'
 import PLTable from '@/components/PLTable'
-import PeriodSelector from '@/components/PeriodSelector'
+import MonthRangeNavigator from '@/components/MonthRangeNavigator'
 import { getLineItemHistory, type HistoryRow } from './actions'
 
 function thb(n: number) { return `฿${Math.round(n).toLocaleString('en-US')}` }
@@ -22,27 +22,33 @@ function KpiCard({ title, value, sub }: { title: string; value: number; sub?: st
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
 
 interface Props {
-  mode: string
-  period1: { label: string; data: PLData }
-  period2: { label: string; data: PLData }
-  deltaLabel: string
+  mode:        string
+  anchor?:     string
+  months?:     MonthColumn[]
+  period1?:    { label: string; data: PLData }
+  period2?:    { label: string; data: PLData }
+  deltaLabel?: string
   summaryCards: { revenue: number; grossProfit: number; opIncome: number; netIncome: number }
-  userId: string
+  userId?:     string
 }
 
 interface HistoryPanel {
-  lineItemId: string
+  lineItemId:   string
   lineItemName: string
-  rows: HistoryRow[]
-  loading: boolean
+  rows:         HistoryRow[]
+  loading:      boolean
 }
 
 export default function AdminDashboard({
-  mode, period1, period2, deltaLabel, summaryCards,
+  mode, anchor = '', months, period1, period2, deltaLabel, summaryCards,
 }: Props) {
   const { revenue, grossProfit, opIncome, netIncome } = summaryCards
   const grossMargin = revenue > 0 ? `${((grossProfit / revenue) * 100).toFixed(1)}% margin` : undefined
   const netMargin   = revenue > 0 ? `${((netIncome / revenue) * 100).toFixed(1)}% net margin` : undefined
+
+  const periodLabel = months
+    ? months[months.length - 1].label
+    : (period1?.label ?? '')
 
   const [history, setHistory] = useState<HistoryPanel | null>(null)
 
@@ -72,26 +78,24 @@ export default function AdminDashboard({
           >
             Manage Users
           </Link>
-          <Suspense><PeriodSelector current={mode} /></Suspense>
+          <Suspense><MonthRangeNavigator mode={mode} anchor={anchor} /></Suspense>
         </div>
       </div>
 
       {/* KPI cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <KpiCard title="Total Revenue"    value={revenue}     sub={`${period1.label} actual`} />
+        <KpiCard title="Total Revenue"    value={revenue}     sub={`${periodLabel} actual`} />
         <KpiCard title="Gross Profit"     value={grossProfit} sub={grossMargin} />
         <KpiCard title="Operating Income" value={opIncome} />
         <KpiCard title="Net Income"       value={netIncome}   sub={netMargin} />
       </div>
 
       {/* Editable P&L table */}
-      <PLTable
-        period1={period1}
-        period2={period2}
-        deltaLabel={deltaLabel}
-        role="admin"
-        onRowClick={handleRowClick}
-      />
+      {months ? (
+        <PLTable months={months} role="admin" onRowClick={handleRowClick} />
+      ) : period1 ? (
+        <PLTable period1={period1} period2={period2} deltaLabel={deltaLabel} role="admin" onRowClick={handleRowClick} />
+      ) : null}
 
       {/* History slide-over */}
       {history && (
