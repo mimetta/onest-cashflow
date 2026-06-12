@@ -28,26 +28,57 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  const db = await createSupabaseServerClient()
+  // Use service client so RLS never silently filters rows
+  let db: ReturnType<typeof serviceClient>
+  try { db = serviceClient() }
+  catch (e: any) { return NextResponse.json({ error: e.message }, { status: 500 }) }
 
-  const [histRes, liRes, actualRes] = await Promise.all([
-    db
-      .from('budget_submissions')
-      .select('id, amount, month, status, version, submitted_at, note, users ( full_name, email )')
-      .eq('line_item_id', lineItemId)
-      .order('month', { ascending: false })
-      .order('version', { ascending: false }),
-    db
-      .from('line_items')
-      .select('name, categories ( name, departments ( full_name ) )')
-      .eq('id', lineItemId)
-      .single(),
-    db
-      .from('expenses')
-      .select('amount, month')
-      .eq('line_item_id', lineItemId)
-      .eq('status', 'approved'),
-  ])
+  // All budget_submissions for this line item — no month filter
+  const histRes = await db
+    .from('budget_submissions')
+    .select('id, amount, month, status, version, submitted_at, note, submitted_by')
+    .eq('line_item_id', lineItemId)
+    .order('month', { ascending: false })
+    .order('version', { ascending: false })
+
+  console.log('[pl/history GET] line_item_id:', lineItemId)
+  console.log('[pl/history GET] histRes.error:', histRes.error)
+  console.log('[pl/history GET] histRes.data count:', histRes.data?.length ?? 0)
+  console.log('[pl/history GET] histRes.data:', JSON.stringify(histRes.data?.slice(0, 3)))
+
+  // Resolve submitter names — try 'users' first, then 'profiles' as fallback
+  const userNameMap = new Map<string, string>()
+  const submitterIds = [...new Set((histRes.data ?? []).map((r: any) => r.submitted_by).filter(Boolean))]
+  if (submitterIds.length > 0) {
+    const usersRes = await db.from('users').select('id, full_name, email').in('id', submitterIds)
+    console.log('[pl/history GET] users lookup error:', usersRes.error)
+    if (!usersRes.error && usersRes.data?.length) {
+      for (const u of usersRes.data) {
+        userNameMap.set(u.id, (u as any).full_name ?? (u as any).email ?? '—')
+      }
+    } else {
+      // Fallback: profiles table
+      const profRes = await db.from('profiles').select('id, full_name').in('id', submitterIds)
+      console.log('[pl/history GET] profiles fallback error:', profRes.error)
+      for (const p of (profRes.data ?? [])) {
+        userNameMap.set((p as any).id, (p as any).full_name ?? '—')
+      }
+    }
+  }
+
+  // Line item metadata
+  const liRes = await db
+    .from('line_items')
+    .select('name, categories ( name, departments ( full_name ) )')
+    .eq('id', lineItemId)
+    .single()
+
+  // Actual expenses for this line item, all months
+  const actualRes = await db
+    .from('expenses')
+    .select('amount, month')
+    .eq('line_item_id', lineItemId)
+    .eq('status', 'approved')
 
   // Build actual map: monthKey → total
   const actualMap = new Map<string, number>()
@@ -62,16 +93,16 @@ export async function GET(req: NextRequest) {
     submitted_at: string | null; note: string | null; submitted_by_name: string
   }>>()
   for (const row of (histRes.data ?? [])) {
-    const key = String(row.month).slice(0, 10)
+    const key = String((row as any).month).slice(0, 10)
     if (!byMonth.has(key)) byMonth.set(key, [])
     byMonth.get(key)!.push({
-      id:                row.id,
-      amount:            Number(row.amount),
-      status:            row.status,
+      id:                (row as any).id,
+      amount:            Number((row as any).amount),
+      status:            (row as any).status,
       version:           (row as any).version ?? 1,
       submitted_at:      (row as any).submitted_at ?? null,
       note:              (row as any).note ?? null,
-      submitted_by_name: (row as any).users?.full_name ?? (row as any).users?.email ?? '—',
+      submitted_by_name: userNameMap.get((row as any).submitted_by) ?? '—',
     })
   }
 
