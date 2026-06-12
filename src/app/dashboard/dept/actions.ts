@@ -20,20 +20,22 @@ export async function submitCategoryBudgets(
 
   const supabase = await createSupabaseServerClient()
 
-  const rows = lineItemAmounts.map(({ lineItemId, departmentId, amount }) => ({
-    line_item_id:  lineItemId,
-    department_id: departmentId,
-    user_id:       user.id,
-    year,
-    month,
+  const monthDate = `${year}-${String(month).padStart(2, '0')}-01`
+
+  const rows = lineItemAmounts.map(({ lineItemId, amount }) => ({
+    line_item_id:   lineItemId,
+    submitted_by:   user.id,
+    month:          monthDate,
     amount,
-    status:        'submitted' as const,
-    submitted_at:  new Date().toISOString(),
+    status:         'submitted' as const,
+    version:        1,
+    visible_to_ceo: false,
+    submitted_at:   new Date().toISOString(),
   }))
 
   const { error } = await supabase
     .from('budget_submissions')
-    .upsert(rows, { onConflict: 'line_item_id,department_id,year,month' })
+    .upsert(rows, { onConflict: 'line_item_id,month' })
 
   if (error) throw new Error(error.message)
   revalidatePath('/dashboard/dept')

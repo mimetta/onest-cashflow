@@ -50,27 +50,31 @@ export default async function CeoDashboardPage({
     supabase
       .from('budget_submissions')
       .select(`
-        id, year, month, amount, submitted_at,
-        line_items ( name, type, categories ( name ) ),
-        departments ( full_name ),
+        id, month, amount, submitted_at,
+        line_items ( name, type, categories ( name, departments ( full_name ) ) ),
         users ( full_name, email )
       `)
       .eq('status', 'submitted')
       .order('submitted_at', { ascending: false }),
   ])
 
-  const pendingSubmissions: PendingRow[] = (pendingRes.data ?? []).map((row: any) => ({
-    id:              row.id,
-    departmentName:  row.departments?.full_name             ?? '—',
-    categoryName:    row.line_items?.categories?.name       ?? '—',
-    lineItemName:    row.line_items?.name                   ?? '—',
-    lineItemType:    row.line_items?.type                   ?? 'EXPENSE',
-    submittedByName: row.users?.full_name ?? row.users?.email ?? '—',
-    year:            row.year,
-    month:           row.month,
-    amount:          Number(row.amount),
-    submittedAt:     row.submitted_at,
-  }))
+  const pendingSubmissions: PendingRow[] = (pendingRes.data ?? []).map((row: any) => {
+    const d     = row.month ? new Date(row.month) : null
+    const year  = d ? d.getUTCFullYear() : 0
+    const month = d ? d.getUTCMonth() + 1 : 0
+    return {
+      id:              row.id,
+      departmentName:  row.line_items?.categories?.departments?.full_name ?? '—',
+      categoryName:    row.line_items?.categories?.name                   ?? '—',
+      lineItemName:    row.line_items?.name                               ?? '—',
+      lineItemType:    row.line_items?.type                               ?? 'EXPENSE',
+      submittedByName: row.users?.full_name ?? row.users?.email          ?? '—',
+      year,
+      month,
+      amount:          Number(row.amount),
+      submittedAt:     row.submitted_at,
+    }
+  })
 
   const revSection  = period1Data.sections.find(s => s.id === 'revenue_channel')
   const grossProfit = getCalcRow(period1Data, 'gross_profit')

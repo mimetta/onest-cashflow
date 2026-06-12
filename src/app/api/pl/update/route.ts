@@ -40,20 +40,17 @@ export async function POST(req: NextRequest) {
   catch (e: any) { return NextResponse.json({ error: e.message }, { status: 500 }) }
 
   if (field === 'budget') {
-    if (!department_id) {
-      return NextResponse.json({ error: 'department_id required for budget' }, { status: 400 })
-    }
     const { error } = await db.from('budget_submissions').upsert({
       line_item_id,
-      department_id,
-      year,
-      month,
-      amount:       value,
-      status:       'approved',
-      note:         `Inline edit by ${profile.role} — ${now}`,
-      submitted_at: now,
-      approved_at:  now,
-    }, { onConflict: 'line_item_id,department_id,year,month' })
+      submitted_by:   user.id,
+      month:          monthDate,
+      amount:         value,
+      status:         'approved',
+      version:        1,
+      visible_to_ceo: true,
+      note:           `Inline edit by ${profile.role} — ${now}`,
+      submitted_at:   now,
+    }, { onConflict: 'line_item_id,month' })
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   } else {
     const { data: existing } = await db

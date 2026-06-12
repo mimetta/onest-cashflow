@@ -152,10 +152,16 @@ export default function ImportClient({ validKeys }: Props) {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Import failed')
-      setStatus({ type: 'success', msg: `Imported ${data.imported} rows. Skipped: ${data.skipped}. Errors: ${data.errors?.length ?? 0}.` })
-      if (data.errors?.length > 0) {
-        console.warn('Import errors:', data.errors)
+      const errCount = data.errors?.length ?? 0
+      if (errCount > 0) {
+        const detail = (data.errors as { index: number; error: string }[])
+          .slice(0, 5)
+          .map(e => `row ${e.index + 1}: ${e.error}`)
+          .join(' · ')
+        const suffix = errCount > 5 ? ` (+${errCount - 5} more)` : ''
+        throw new Error(`${data.imported} imported, ${errCount} failed — ${detail}${suffix}`)
       }
+      setStatus({ type: 'success', msg: `Imported ${data.imported} rows successfully.` })
     } catch (e: any) {
       setStatus({ type: 'error', msg: e.message })
     } finally {

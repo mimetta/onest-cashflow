@@ -38,7 +38,6 @@ function buildLookup(lineItems: any[]): Map<string, Resolved> {
     const resolved: Resolved = { lineItemId: li.id, deptId: dept.id }
     const namePart = norm(li.name)
     const catPart  = norm(cat.name)
-    // Match dept against either code or full_name, case-insensitive + trimmed
     m.set(`${namePart}|${norm(dept.code)}|${catPart}`,      resolved)
     m.set(`${namePart}|${norm(dept.full_name)}|${catPart}`, resolved)
   }
@@ -67,46 +66,65 @@ export async function POST(req: NextRequest) {
   try { db = serviceClient() }
   catch (e: any) { return NextResponse.json({ error: e.message }, { status: 500 }) }
 
-  // Fetch all line items once for server-side resolution
-  const { data: lineItemsData } = await db.from('line_items').select(`
+  // Fetch all line items once for server-side name resolution
+  const { data: lineItemsData, error: liError } = await db.from('line_items').select(`
     id, name,
     categories ( name, departments ( id, code, full_name ) )
   `)
+  if (liError) {
+    console.error('[import] line_items fetch failed:', liError)
+    return NextResponse.json({ error: `line_items fetch: ${liError.message}` }, { status: 500 })
+  }
+
   const lookup = buildLookup(lineItemsData ?? [])
+  console.log(`[import] lookup built — ${lookup.size} keys from ${(lineItemsData ?? []).length} line items`)
 
   const now      = new Date().toISOString()
   let   imported = 0
-  const errors:  { index: number; error: string }[] = []
+  const errors:  { index: number; row: Partial<ImportRow>; error: string }[] = []
 
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i]
+
     if (!r.name || !r.dept || !r.year || !r.month || r.amount == null) {
-      errors.push({ index: i, error: 'Missing required field' }); continue
+      const msg = 'Missing required field'
+      console.error(`[import] row ${i}: ${msg}`, r)
+      errors.push({ index: i, row: r, error: msg }); continue
     }
 
     const key      = `${norm(r.name)}|${norm(r.dept)}|${norm(r.category)}`
     const resolved = lookup.get(key)
     if (!resolved) {
-      errors.push({ index: i, error: `No match: "${r.name}" / ${r.dept} / ${r.category}` }); continue
+      const msg = `No match for name="${r.name}" dept="${r.dept}" category="${r.category}"`
+      console.error(`[import] row ${i}: ${msg}`)
+      errors.push({ index: i, row: r, error: msg }); continue
     }
+
+    const monthDate = `${r.year}-${String(r.month).padStart(2, '0')}-01`
 
     try {
       if (type === 'budget') {
-        const { error } = await db.from('budget_submissions').upsert({
-          line_item_id:  resolved.lineItemId,
-          department_id: resolved.deptId,
-          year:          r.year,
-          month:         r.month,
-          amount:        r.amount,
-          status:        'approved',
-          note:          `CSV import by admin — ${now}`,
-          submitted_at:  now,
-          approved_at:   now,
-        }, { onConflict: 'line_item_id,department_id,year,month' })
-        if (error) throw error
+        const payload = {
+          line_item_id:   resolved.lineItemId,
+          submitted_by:   user.id,
+          month:          monthDate,
+          amount:         r.amount,
+          status:         'approved',
+          version:        1,
+          visible_to_ceo: true,
+          note:           `CSV import by admin — ${now}`,
+          submitted_at:   now,
+        }
+        const { error } = await db
+          .from('budget_submissions')
+          .upsert(payload, { onConflict: 'line_item_id,month' })
+        if (error) {
+          console.error(`[import] row ${i} budget_submissions upsert failed — full error:`, JSON.stringify(error), '| payload:', JSON.stringify(payload))
+          throw new Error(error.message)
+        }
+        console.log(`[import] row ${i} budget ok: ${r.name} ${monthDate} ${r.amount}`)
       } else {
-        const monthDate = `${r.year}-${String(r.month).padStart(2, '0')}-01`
-        const { error } = await db.from('expenses').insert({
+        const payload = {
           line_item_id:  resolved.lineItemId,
           submitted_by:  user.id,
           month:         monthDate,
@@ -114,14 +132,21 @@ export async function POST(req: NextRequest) {
           source:        'csv_import',
           status:        'approved',
           description:   `CSV import by admin — ${now}`,
-        })
-        if (error) throw error
+        }
+        const { error } = await db.from('expenses').insert(payload)
+        if (error) {
+          console.error(`[import] row ${i} expenses insert failed — full error:`, JSON.stringify(error), '| payload:', JSON.stringify(payload))
+          throw new Error(error.message)
+        }
+        console.log(`[import] row ${i} actual ok: ${r.name} ${monthDate} ${r.amount}`)
       }
       imported++
     } catch (e: any) {
-      errors.push({ index: i, error: e.message ?? String(e) })
+      const msg = e.message ?? String(e)
+      errors.push({ index: i, row: r, error: msg })
     }
   }
 
+  console.log(`[import] done — imported: ${imported}, errors: ${errors.length}`)
   return NextResponse.json({ imported, skipped: 0, errors })
 }

@@ -106,6 +106,10 @@ export async function getPLData(year: number, month: number): Promise<PLData> {
   const monthDate = `${year}-${String(month).padStart(2, '0')}-01`
   const supabase  = await createSupabaseServerClient()
 
+  const nextYear      = month === 12 ? year + 1 : year
+  const nextMonth     = month === 12 ? 1 : month + 1
+  const nextMonthDate = `${nextYear}-${String(nextMonth).padStart(2, '0')}-01`
+
   const [lineItemsRes, deptsRes, budgetsRes, expensesRes] = await Promise.all([
     supabase.from('line_items').select(`
       id, name, subcategory_l1, type, owner_name,
@@ -114,7 +118,7 @@ export async function getPLData(year: number, month: number): Promise<PLData> {
     supabase.from('departments').select('id, code, full_name, owner_name'),
     supabase.from('budget_submissions')
       .select('line_item_id, amount')
-      .eq('year', year).eq('month', month).eq('status', 'approved'),
+      .gte('month', monthDate).lt('month', nextMonthDate).eq('status', 'approved'),
     supabase.from('expenses')
       .select('line_item_id, amount')
       .eq('status', 'approved').eq('month', monthDate),
@@ -146,34 +150,26 @@ export async function getPLDataAggregated(
 
   const supabase = await createSupabaseServerClient()
 
-  // Group by year for budget_submissions
-  const byYear = new Map<number, number[]>()
-  for (const p of periods) (byYear.get(p.year) ?? (byYear.set(p.year, []), byYear.get(p.year)!)).push(p.month)
-
   const monthDates = periods.map(p => `${p.year}-${String(p.month).padStart(2, '0')}-01`)
 
-  const [lineItemsRes, deptsRes, expensesRes, ...budgetResults] = await Promise.all([
+  const [lineItemsRes, deptsRes, budgetRes, expensesRes] = await Promise.all([
     supabase.from('line_items').select(`
       id, name, subcategory_l1, type, owner_name,
       categories ( name, is_hr_category, departments ( id, code, full_name ) )
     `).order('name'),
     supabase.from('departments').select('id, code, full_name, owner_name'),
+    supabase.from('budget_submissions')
+      .select('line_item_id, amount')
+      .in('month', monthDates).eq('status', 'approved'),
     supabase.from('expenses')
       .select('line_item_id, amount')
       .eq('status', 'approved')
       .in('month', monthDates),
-    ...Array.from(byYear.entries()).map(([year, months]) =>
-      supabase.from('budget_submissions')
-        .select('line_item_id, amount')
-        .eq('year', year).in('month', months).eq('status', 'approved')
-    ),
   ])
 
   const budgetMap: Record<string, number> = {}
-  for (const result of budgetResults) {
-    for (const r of ((result as any).data ?? [])) {
-      budgetMap[r.line_item_id] = (budgetMap[r.line_item_id] ?? 0) + Number(r.amount)
-    }
+  for (const r of (budgetRes.data ?? [])) {
+    budgetMap[r.line_item_id] = (budgetMap[r.line_item_id] ?? 0) + Number(r.amount)
   }
   const actualMap: Record<string, number> = {}
   for (const r of (expensesRes.data ?? [])) {

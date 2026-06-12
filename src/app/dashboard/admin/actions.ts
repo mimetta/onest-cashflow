@@ -27,20 +27,20 @@ export async function adminUpdateBudget(params: {
   if (!user || user.role !== 'admin') throw new Error('Unauthorized')
 
   const supabase = await createSupabaseServerClient()
-  const now = new Date().toISOString()
+  const now       = new Date().toISOString()
+  const monthDate = `${params.year}-${String(params.month).padStart(2, '0')}-01`
 
   const { error } = await supabase.from('budget_submissions').upsert({
-    line_item_id:  params.lineItemId,
-    department_id: params.departmentId,
-    year:          params.year,
-    month:         params.month,
-    amount:        params.amount,
-    status:        'approved',
-    note:          `Edited by Admin — ${now}`,
-    submitted_by:  user.id,
-    submitted_at:  now,
-    approved_at:   now,
-  }, { onConflict: 'line_item_id,department_id,year,month' })
+    line_item_id:   params.lineItemId,
+    submitted_by:   user.id,
+    month:          monthDate,
+    amount:         params.amount,
+    status:         'approved',
+    version:        1,
+    visible_to_ceo: true,
+    note:           `Edited by Admin — ${now}`,
+    submitted_at:   now,
+  }, { onConflict: 'line_item_id,month' })
 
   if (error) throw new Error(error.message)
 }
