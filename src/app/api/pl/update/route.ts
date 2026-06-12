@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
   catch (e: any) { return NextResponse.json({ error: e.message }, { status: 500 }) }
 
   if (field === 'budget') {
-    const { error } = await db.from('budget_submissions').upsert({
+    const payload = {
       line_item_id,
       submitted_by:   user.id,
       month:          monthDate,
@@ -50,8 +50,14 @@ export async function POST(req: NextRequest) {
       visible_to_ceo: true,
       note:           `Inline edit by ${profile.role} — ${now}`,
       submitted_at:   now,
-    }, { onConflict: 'line_item_id,month' })
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    }
+    const { error } = await db.from('budget_submissions')
+      .upsert(payload, { onConflict: 'line_item_id,month' })
+    if (error) {
+      console.error('[pl/update] budget upsert failed:', JSON.stringify(error), '| payload:', JSON.stringify(payload))
+      return NextResponse.json({ error: error.message }, { status: 500 })
+    }
+    console.log('[pl/update] budget ok:', line_item_id, monthDate, value)
   } else {
     const { data: existing } = await db
       .from('expenses')
@@ -65,9 +71,12 @@ export async function POST(req: NextRequest) {
       const { error } = await db.from('expenses')
         .update({ amount: value, description: `Inline edit by ${profile.role} — ${now}` })
         .eq('id', existing.id)
-      if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+      if (error) {
+        console.error('[pl/update] expenses update failed:', JSON.stringify(error), '| id:', existing.id)
+        return NextResponse.json({ error: error.message }, { status: 500 })
+      }
     } else {
-      const { error } = await db.from('expenses').insert({
+      const payload = {
         line_item_id,
         submitted_by: user.id,
         month:        monthDate,
@@ -75,9 +84,14 @@ export async function POST(req: NextRequest) {
         source:       'manual_admin_edit',
         status:       'approved',
         description:  `Inline edit by ${profile.role} — ${now}`,
-      })
-      if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+      }
+      const { error } = await db.from('expenses').insert(payload)
+      if (error) {
+        console.error('[pl/update] expenses insert failed:', JSON.stringify(error), '| payload:', JSON.stringify(payload))
+        return NextResponse.json({ error: error.message }, { status: 500 })
+      }
     }
+    console.log('[pl/update] actual ok:', line_item_id, monthDate, value)
   }
 
   return NextResponse.json({ success: true })

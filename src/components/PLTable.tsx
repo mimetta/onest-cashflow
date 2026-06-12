@@ -124,11 +124,14 @@ function InlineEditCell({
     const v = parseFloat(raw)
     setEditing(false)
     if (isNaN(v) || v === displayVal) return
+    console.log('[PLTable] saving inline edit', { raw, parsed: v, prev: displayVal })
     try {
       await onSave(v)
       setDisplayVal(v)
       setFlash('success')
-    } catch {
+      console.log('[PLTable] save ok')
+    } catch (e) {
+      console.error('[PLTable] save failed', e)
       setFlash('error')
     }
     setTimeout(() => setFlash(null), 300)
@@ -157,7 +160,7 @@ function InlineEditCell({
       className={`${num} px-3 ${py} text-xs cursor-pointer group relative transition-colors ${
         flash === 'success' ? 'bg-emerald-100' : flash === 'error' ? 'bg-red-100' : ''
       }`}
-      onClick={e => { e.stopPropagation(); setEditing(true) }}
+      onClick={e => { e.stopPropagation(); console.log('[PLTable] cell clicked, entering edit mode'); setEditing(true) }}
     >
       <span className={displayVal === 0 ? 'text-gray-300' : ''}>{thb(displayVal)}</span>
       <span className="absolute right-1 top-1/2 -translate-y-1/2 text-[9px] text-gray-400 opacity-0 group-hover:opacity-40 pointer-events-none">✏</span>
@@ -223,8 +226,8 @@ export default function PLTable({
 
   const p2         = useMemo(() => period2 ? buildP2Map(period2.data) : null, [period2])
   const hasPeriod2 = p2 !== null
-  // Role-based inline editing (admin/ceo) — disabled when comparing periods
-  const canEdit    = (role === 'admin' || role === 'ceo') && !hasPeriod2
+  // Editing always targets period1; period2 comparison columns are read-only context
+  const canEdit    = role === 'admin' || role === 'ceo'
 
   const [p1gb, p1ga] = useMemo(() => {
     const rev = period1.data.sections.find(s => s.id === 'revenue_channel')
