@@ -295,6 +295,14 @@ export default function PLTable({
   const mmLast = Math.max(0, mmN - 1)
   const mmPrev = Math.max(0, mmN - 2)
 
+  // UUID of the COGS own-make department — used for inventory movement calculation in COGM schedule
+  const cogsDeptId = useMemo(() => {
+    return refData?.sections
+      .find(s => s.id === 'cost_of_goods')
+      ?.groups.find(g => g.deptCode === 'COGS')
+      ?.departmentId ?? ''
+  }, [refData])
+
   function toggleSection(id: string) {
     setCollapse(prev => ({ ...prev, sections: { ...prev.sections, [id]: !(prev.sections[id] ?? false) } }))
   }
@@ -723,6 +731,299 @@ export default function PLTable({
     )
   }
 
+  // ── Section 4: COGS flat row (single item, no expand arrow) ─────────────────
+
+  function renderCogsFlatRowCmp(group: PLGroupData, _section: PLSectionData) {
+    const li = group.lineItems[0]
+    if (!li) return null
+    const p2a = p2?.items[li.lineItemId] ?? ZERO
+    return (
+      <tr key={group.departmentId} className="bg-gray-100 border-b border-gray-200">
+        <td className="pl-4 pr-3 py-2 text-[13px] font-medium text-gray-700">
+          {group.deptFullName}
+        </td>
+        <OwnerCell value={group.ownerName} py="py-2" />
+        {canEdit ? (
+          <>
+            <InlineEditCell value={li.budget} py="py-2" onSave={makeSave(li, 'budget', p1Year, p1Month)} />
+            <PctCell v={li.budget} base={p1gb} py="py-2" />
+            <InlineEditCell value={li.actual} py="py-2" onSave={makeSave(li, 'actual', p1Year, p1Month)} />
+            <PctCell v={li.actual} base={p1ga} py="py-2" />
+          </>
+        ) : (
+          <PCols a={group.subtotal} gb={p1gb} ga={p1ga} py="py-2" />
+        )}
+        {hasPeriod2 && (
+          <>
+            <PCols a={p2a} gb={p2!.grossBudget} ga={p2!.grossActual} py="py-2" />
+            <DeltaCell p1={li.actual} p2={p2a.actual} revCtx={false} py="py-2" />
+          </>
+        )}
+      </tr>
+    )
+  }
+
+  function renderCogsFlatRowMM(group: PLGroupData, _section: PLSectionData) {
+    const li = group.lineItems[0]
+    if (!li) return null
+    const lastLI = monthLookups![mmLast].lineItems.get(li.lineItemId) ?? ZERO
+    const prevLI = monthLookups![mmPrev].lineItems.get(li.lineItemId) ?? ZERO
+    return (
+      <tr key={group.departmentId} className="bg-gray-100 border-b border-gray-200">
+        <td className="pl-4 pr-3 py-2 text-[13px] font-medium text-gray-700">
+          {group.deptFullName}
+        </td>
+        <OwnerCell value={group.ownerName} py="py-2" />
+        {months!.map((mc, ci) => {
+          const a  = monthLookups![ci].lineItems.get(li.lineItemId) ?? ZERO
+          const gb = monthLookups![ci].grossBudget
+          const ga = monthLookups![ci].grossActual
+          return (
+            <Fragment key={`${mc.year}-${mc.month}`}>
+              {canEdit ? (
+                <InlineEditCell value={a.budget} py="py-2" onSave={makeSave(li, 'budget', mc.year, mc.month)} />
+              ) : (
+                <AmtCell n={a.budget} py="py-2" />
+              )}
+              <PctCell v={a.budget} base={gb} py="py-2" />
+              {canEdit ? (
+                <InlineEditCell value={a.actual} py="py-2" onSave={makeSave(li, 'actual', mc.year, mc.month)} />
+              ) : (
+                <AmtCell n={a.actual} py="py-2" />
+              )}
+              <PctCell v={a.actual} base={ga} py="py-2" />
+            </Fragment>
+          )
+        })}
+        {mmN >= 2 && <DeltaCell p1={lastLI.actual} p2={prevLI.actual} revCtx={false} py="py-2" />}
+      </tr>
+    )
+  }
+
+  // ── Section 4b: COGM Supporting Schedule (amber, reference only) ─────────────
+
+  function renderCogmSchedule(section: PLSectionData) {
+    const COGM_BG      = '#fdf8ee'
+    const COGM_TEXT    = '#7a5c10'
+    const COGM_BORDER  = '#e8c96a'
+    const COGM_ITEM_BG = '#fffdf5'
+
+    const isSectionOpen = collapse.sections[section.id] ?? false
+    const group = section.groups[0]
+    if (!group) return null
+
+    const cogsGroup = refData!.sections
+      .find(s => s.id === 'cost_of_goods')
+      ?.groups.find(g => g.departmentId === cogsDeptId)
+
+    return (
+      <Fragment key={section.id}>
+        <tr style={{ borderTop: `2px dashed ${COGM_BORDER}`, backgroundColor: COGM_BG }}
+            className="cursor-pointer select-none"
+            onClick={() => toggleSection(section.id)}>
+          <td className="px-3 py-2.5 text-xs font-bold uppercase tracking-wider" style={{ color: COGM_TEXT }}>
+            <span className="mr-2 text-[10px]" style={{ color: COGM_TEXT }}>
+              {isSectionOpen ? '▼' : '▶'}
+            </span>
+            {section.title}
+            <span className="ml-3 px-1.5 py-0.5 rounded text-[9px] font-medium border inline-block"
+                  style={{ background: '#fff8e1', color: COGM_TEXT, borderColor: COGM_BORDER }}>
+              reference only · not in P&L calc
+            </span>
+          </td>
+          <OwnerCell py="py-2.5" />
+          {isMultiMonth ? (
+            <>
+              {months!.map((mc, ci) => {
+                const st = monthLookups![ci].sections.get(section.id) ?? ZERO
+                const gb = monthLookups![ci].grossBudget
+                const ga = monthLookups![ci].grossActual
+                return (
+                  <Fragment key={`${mc.year}-${mc.month}`}>
+                    <AmtCell n={st.budget} py="py-2.5" />
+                    <PctCell v={st.budget} base={gb} py="py-2.5" />
+                    <AmtCell n={st.actual} py="py-2.5" />
+                    <PctCell v={st.actual} base={ga} py="py-2.5" />
+                  </Fragment>
+                )
+              })}
+              {mmN >= 2 && (() => {
+                const lastSt = monthLookups![mmLast].sections.get(section.id) ?? ZERO
+                const prevSt = monthLookups![mmPrev].sections.get(section.id) ?? ZERO
+                return <DeltaCell p1={lastSt.actual} p2={prevSt.actual} revCtx={false} py="py-2.5" />
+              })()}
+            </>
+          ) : (
+            <>
+              <PCols a={section.total} gb={p1gb} ga={p1ga} py="py-2.5" />
+              {hasPeriod2 && (
+                <>
+                  <PCols a={p2?.sectionTotals[section.id] ?? ZERO} gb={p2!.grossBudget} ga={p2!.grossActual} py="py-2.5" />
+                  <DeltaCell p1={section.total.actual} p2={(p2?.sectionTotals[section.id] ?? ZERO).actual} revCtx={false} py="py-2.5" />
+                </>
+              )}
+            </>
+          )}
+        </tr>
+
+        {isSectionOpen && (
+          <>
+            {group.lineItems.map(li => {
+              const p2a      = p2?.items[li.lineItemId] ?? ZERO
+              const histClick = onRowClick ? () => onRowClick!(li.lineItemId, li.name) : undefined
+              const lastA    = isMultiMonth ? (monthLookups![mmLast].lineItems.get(li.lineItemId) ?? ZERO) : ZERO
+              const prevA    = isMultiMonth ? (monthLookups![mmPrev].lineItems.get(li.lineItemId) ?? ZERO) : ZERO
+              return (
+                <tr key={li.lineItemId}
+                    className="border-b"
+                    style={{ backgroundColor: COGM_ITEM_BG, borderLeftWidth: 2, borderLeftStyle: 'solid', borderLeftColor: COGM_BORDER, borderBottomColor: '#f0e8d0' }}>
+                  <td className="pl-10 pr-3 py-1.5 text-xs" style={{ color: COGM_TEXT }}>
+                    {li.name}
+                    {li.subcategoryL1 && <div className="text-[10px] opacity-70 mt-0.5">{li.subcategoryL1}</div>}
+                  </td>
+                  <OwnerCell value={li.ownerName} showDash />
+                  {isMultiMonth ? (
+                    <>
+                      {months!.map((mc, ci) => {
+                        const a  = monthLookups![ci].lineItems.get(li.lineItemId) ?? ZERO
+                        const gb = monthLookups![ci].grossBudget
+                        const ga = monthLookups![ci].grossActual
+                        return (
+                          <Fragment key={`${mc.year}-${mc.month}`}>
+                            {canEdit ? (
+                              <InlineEditCell value={a.budget} onSave={makeSave(li, 'budget', mc.year, mc.month)} />
+                            ) : (
+                              <AmtCell n={a.budget} />
+                            )}
+                            <PctCell v={a.budget} base={gb} onClick={histClick} />
+                            {canEdit ? (
+                              <InlineEditCell value={a.actual} onSave={makeSave(li, 'actual', mc.year, mc.month)} />
+                            ) : (
+                              <AmtCell n={a.actual} />
+                            )}
+                            <PctCell v={a.actual} base={ga} onClick={histClick} />
+                          </Fragment>
+                        )
+                      })}
+                      {mmN >= 2 && <DeltaCell p1={lastA.actual} p2={prevA.actual} revCtx={false} />}
+                    </>
+                  ) : (
+                    <>
+                      {canEdit ? (
+                        <>
+                          <InlineEditCell value={li.budget} onSave={makeSave(li, 'budget', p1Year, p1Month)} />
+                          <PctCell v={li.budget} base={p1gb} onClick={histClick} />
+                          <InlineEditCell value={li.actual} onSave={makeSave(li, 'actual', p1Year, p1Month)} />
+                          <PctCell v={li.actual} base={p1ga} onClick={histClick} />
+                        </>
+                      ) : (
+                        <>
+                          <AmtCell n={li.budget} />
+                          <PctCell v={li.budget} base={p1gb} onClick={histClick} />
+                          <AmtCell n={li.actual} />
+                          <PctCell v={li.actual} base={p1ga} onClick={histClick} />
+                        </>
+                      )}
+                      {hasPeriod2 && (
+                        <>
+                          <PCols a={p2a} gb={p2!.grossBudget} ga={p2!.grossActual} />
+                          <DeltaCell p1={li.actual} p2={p2a.actual} revCtx={false} />
+                        </>
+                      )}
+                    </>
+                  )}
+                </tr>
+              )
+            })}
+
+            {/* Total COGM row */}
+            {(() => {
+              const lastSt = isMultiMonth ? (monthLookups![mmLast].sections.get(section.id) ?? ZERO) : ZERO
+              const prevSt = isMultiMonth ? (monthLookups![mmPrev].sections.get(section.id) ?? ZERO) : ZERO
+              const p2sec  = p2?.sectionTotals[section.id] ?? ZERO
+              return (
+                <tr className="border-b" style={{ backgroundColor: COGM_BG, borderBottomColor: COGM_BORDER }}>
+                  <td className="px-3 py-2 text-xs font-bold italic" style={{ color: COGM_TEXT }}>
+                    {section.totalLabel}
+                  </td>
+                  <OwnerCell py="py-2" />
+                  {isMultiMonth ? (
+                    <>
+                      {months!.map((mc, ci) => {
+                        const st = monthLookups![ci].sections.get(section.id) ?? ZERO
+                        const gb = monthLookups![ci].grossBudget
+                        const ga = monthLookups![ci].grossActual
+                        return (
+                          <Fragment key={`${mc.year}-${mc.month}`}>
+                            <AmtCell n={st.budget} py="py-2" />
+                            <PctCell v={st.budget} base={gb} py="py-2" />
+                            <AmtCell n={st.actual} py="py-2" />
+                            <PctCell v={st.actual} base={ga} py="py-2" />
+                          </Fragment>
+                        )
+                      })}
+                      {mmN >= 2 && <DeltaCell p1={lastSt.actual} p2={prevSt.actual} revCtx={false} py="py-2" />}
+                    </>
+                  ) : (
+                    <>
+                      <PCols a={section.total} gb={p1gb} ga={p1ga} py="py-2" />
+                      {hasPeriod2 && (
+                        <>
+                          <PCols a={p2sec} gb={p2!.grossBudget} ga={p2!.grossActual} py="py-2" />
+                          <DeltaCell p1={section.total.actual} p2={p2sec.actual} revCtx={false} py="py-2" />
+                        </>
+                      )}
+                    </>
+                  )}
+                </tr>
+              )
+            })()}
+
+            {/* Inventory movement row */}
+            {(() => {
+              if (isMultiMonth) {
+                return (
+                  <tr style={{ backgroundColor: COGM_BG, borderTop: `1px dashed ${COGM_BORDER}` }}>
+                    <td colSpan={2} className="px-3 py-1.5 text-[10px] italic" style={{ color: COGM_TEXT }}>
+                      Inventory movement
+                    </td>
+                    {months!.map((mc, ci) => {
+                      const cogmSt = monthLookups![ci].sections.get(section.id) ?? ZERO
+                      const cogsSt = monthLookups![ci].groups.get(cogsDeptId) ?? ZERO
+                      const diff   = cogmSt.actual - cogsSt.actual
+                      const dir    = diff > 0 ? 'added to' : diff < 0 ? 'drawn from' : 'no change in'
+                      return (
+                        <td key={`${mc.year}-${mc.month}`} colSpan={4}
+                            className="px-2 py-1.5 text-[10px] italic text-center"
+                            style={{ color: COGM_TEXT }}>
+                          {thb(cogmSt.actual)} − {thb(cogsSt.actual)} = {thb(Math.abs(diff))} {dir} inv.
+                        </td>
+                      )
+                    })}
+                    {mmN >= 2 && <td />}
+                  </tr>
+                )
+              }
+              const cogmActual = section.total.actual
+              const cogsActual = cogsGroup?.subtotal.actual ?? 0
+              const diff       = cogmActual - cogsActual
+              const dir        = diff > 0 ? 'added to' : diff < 0 ? 'drawn from' : 'no change in'
+              return (
+                <tr style={{ backgroundColor: COGM_BG, borderTop: `1px dashed ${COGM_BORDER}` }}>
+                  <td colSpan={2 + 4 + (hasPeriod2 ? 5 : 0)}
+                      className="px-3 py-1.5 text-[10px] italic"
+                      style={{ color: COGM_TEXT }}>
+                    COGM {thb(cogmActual)} − COGS own make {thb(cogsActual)} = {thb(Math.abs(diff))} {dir} finished goods inventory
+                  </td>
+                </tr>
+              )
+            })()}
+          </>
+        )}
+      </Fragment>
+    )
+  }
+
   // ── Main render ──────────────────────────────────────────────────────────────
 
   if (!refData) return null
@@ -830,6 +1131,7 @@ export default function PLTable({
 
         <tbody className="bg-white">
           {refData.sections.map(section => {
+            if (section.id === 'cogm_schedule') return renderCogmSchedule(section)
             const hasItems      = section.groups.some(g => g.lineItems.length > 0)
             if (!hasItems) return null
             const isSectionOpen = collapse.sections[section.id] ?? false
@@ -886,6 +1188,8 @@ export default function PLTable({
                 {isSectionOpen && (
                   <>
                     {nonEmpty.map(g => {
+                      if (section.id === 'cost_of_goods' && g.deptCode === 'COGS' && g.lineItems.length === 1)
+                        return isMultiMonth ? renderCogsFlatRowMM(g, section) : renderCogsFlatRowCmp(g, section)
                       if (isMultiMonth) return isOpex ? renderOpexGroupMM(g, section) : renderStdGroupMM(g, section)
                       return isOpex ? renderOpexGroupCmp(g, section) : renderStdGroupCmp(g, section)
                     })}

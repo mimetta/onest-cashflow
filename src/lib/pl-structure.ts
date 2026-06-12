@@ -128,11 +128,6 @@ export const PL_SECTIONS: readonly PLSection[] = [
     defaultCollapsed: true,
     groups: [
       {
-        deptCode:     'COGM',
-        deptFullName: 'Cost of Goods Manufactured',
-        subtotalLabel: 'COGM subtotal',
-      },
-      {
         deptCode:     'COGS',
         deptFullName: 'Cost of Goods Sold',
         subtotalLabel: 'COGS subtotal',
@@ -146,6 +141,22 @@ export const PL_SECTIONS: readonly PLSection[] = [
         deptCode:     'Merchandise',
         deptFullName: 'Merchandise',
         subtotalLabel: 'Merchandise subtotal',
+      },
+    ],
+  },
+
+  // ── 4b. COGM Supporting Schedule (reference only, excluded from P&L calcs) ─
+  {
+    id:         'cogm_schedule',
+    title:      'COGM — Supporting Schedule',
+    totalLabel: 'Total COGM',
+    totalId:    'total_cogm',
+    defaultCollapsed: true,
+    groups: [
+      {
+        deptCode:     'COGM',
+        deptFullName: 'Cost of Goods Manufactured',
+        subtotalLabel: 'COGM subtotal',
       },
     ],
   },

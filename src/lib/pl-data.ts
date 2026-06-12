@@ -49,10 +49,14 @@ function buildPLDataFromMaps({
     const key    = `${dept.code}|${dept.full_name}`
     const budget = budgetMap[li.id] ?? 0
     const actual = actualMap[li.id] ?? 0
+    // For OEM, use category name as sub-label when it differs from the item name
+    // (distinguishes "Raw Materials (Replenishing)" from "Raw Materials (NPD)" etc.)
+    const subLabel: string | null = li.subcategory_l1
+      ?? (dept.code === 'OEM' && cat.name !== li.name ? cat.name : null)
     ;(deptMap[key] ??= []).push({
       lineItemId:    li.id,
       name:          li.name,
-      subcategoryL1: li.subcategory_l1 ?? null,
+      subcategoryL1: subLabel,
       categoryName:  cat.name ?? '',
       isHrCategory:  cat.is_hr_category ?? false,
       lineItemType:  li.type ?? 'EXPENSE',
