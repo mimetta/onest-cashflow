@@ -303,6 +303,14 @@ export default function PLTable({
       ?.departmentId ?? ''
   }, [refData])
 
+  // UUID of the COGM department — used for inventory movement (FIX 3: groups lookup, not sections)
+  const cogmDeptId = useMemo(() => {
+    return refData?.sections
+      .find(s => s.id === 'cogm_schedule')
+      ?.groups.find(g => g.deptCode === 'COGM')
+      ?.departmentId ?? ''
+  }, [refData])
+
   function toggleSection(id: string) {
     setCollapse(prev => ({ ...prev, sections: { ...prev.sections, [id]: !(prev.sections[id] ?? false) } }))
   }
@@ -336,10 +344,13 @@ export default function PLTable({
   // FIX 1: no row-level onClick; %Rev cells open history drawer
   function renderLineItemCmp(
     li: PLLineItemRow, group: PLGroupData, section: PLSectionData, deepIndent: boolean,
+    dupeNames?: Set<string>,
   ) {
     const p2a      = p2?.items[li.lineItemId] ?? ZERO
     const revCtx   = REV_IDS.has(section.id)
     const histClick = onRowClick ? () => onRowClick!(li.lineItemId, li.name) : undefined
+    // FIX 1: show category as subtitle when subcategoryL1 is absent but name is a duplicate in this group
+    const subtitle  = li.subcategoryL1 || (dupeNames?.has(li.name) ? li.categoryName : null)
     return (
       <tr
         key={li.lineItemId}
@@ -348,7 +359,7 @@ export default function PLTable({
       >
         <td className={`${deepIndent ? 'pl-[48px]' : 'pl-10'} pr-3 py-1.5 text-xs text-gray-700`}>
           <div>{li.name}</div>
-          {li.subcategoryL1 && <div className="text-[10px] text-gray-400 mt-0.5">{li.subcategoryL1}</div>}
+          {subtitle && <div className="text-[10px] text-gray-400 mt-0.5">{subtitle}</div>}
         </td>
         <OwnerCell value={li.ownerName} showDash />
         {canEdit ? (
@@ -420,6 +431,10 @@ export default function PLTable({
       ? group.lineItems.reduce((acc: Amounts, li) => addAmounts(acc, p2.items[li.lineItemId] ?? ZERO), ZERO)
       : ZERO
     const revCtx = REV_IDS.has(section.id)
+    // FIX 1: detect duplicate item names within this group (e.g. OEM "Raw Materials" × 2)
+    const nameCounts = new Map<string, number>()
+    for (const li of group.lineItems) nameCounts.set(li.name, (nameCounts.get(li.name) ?? 0) + 1)
+    const dupeNames = new Set([...nameCounts.entries()].filter(([, n]) => n > 1).map(([name]) => name))
     return (
       <Fragment key={group.departmentId}>
         <tr className="bg-gray-100 cursor-pointer hover:bg-gray-200 transition-colors select-none"
@@ -437,7 +452,7 @@ export default function PLTable({
             </>
           )}
         </tr>
-        {isExpanded && group.lineItems.map(li => renderLineItemCmp(li, group, section, false))}
+        {isExpanded && group.lineItems.map(li => renderLineItemCmp(li, group, section, false, dupeNames))}
       </Fragment>
     )
   }
@@ -513,11 +528,14 @@ export default function PLTable({
   // FIX 1 + FIX 2 + FIX 5: multi-month line item row
   function renderLineItemMM(
     li: PLLineItemRow, group: PLGroupData, section: PLSectionData, deepIndent: boolean,
+    dupeNames?: Set<string>,
   ) {
     const histClick = onRowClick ? () => onRowClick!(li.lineItemId, li.name) : undefined
     const revCtx    = REV_IDS.has(section.id)
     const lastA     = monthLookups![mmLast].lineItems.get(li.lineItemId) ?? ZERO
     const prevA     = monthLookups![mmPrev].lineItems.get(li.lineItemId) ?? ZERO
+    // FIX 1: show category as subtitle when subcategoryL1 is absent but name is a duplicate in this group
+    const subtitle  = li.subcategoryL1 || (dupeNames?.has(li.name) ? li.categoryName : null)
     return (
       <tr
         key={li.lineItemId}
@@ -526,7 +544,7 @@ export default function PLTable({
       >
         <td className={`${deepIndent ? 'pl-[48px]' : 'pl-10'} pr-3 py-1.5 text-xs text-gray-700`}>
           <div>{li.name}</div>
-          {li.subcategoryL1 && <div className="text-[10px] text-gray-400 mt-0.5">{li.subcategoryL1}</div>}
+          {subtitle && <div className="text-[10px] text-gray-400 mt-0.5">{subtitle}</div>}
         </td>
         <OwnerCell value={li.ownerName} showDash />
         {months!.map((mc, ci) => {
@@ -614,6 +632,10 @@ export default function PLTable({
     const revCtx     = REV_IDS.has(section.id)
     const lastG      = monthLookups![mmLast].groups.get(group.departmentId) ?? ZERO
     const prevG      = monthLookups![mmPrev].groups.get(group.departmentId) ?? ZERO
+    // FIX 1: detect duplicate item names within this group (e.g. OEM "Raw Materials" × 2)
+    const nameCounts = new Map<string, number>()
+    for (const li of group.lineItems) nameCounts.set(li.name, (nameCounts.get(li.name) ?? 0) + 1)
+    const dupeNames = new Set([...nameCounts.entries()].filter(([, n]) => n > 1).map(([name]) => name))
     return (
       <Fragment key={group.departmentId}>
         <tr className="bg-gray-100 cursor-pointer hover:bg-gray-200 transition-colors select-none"
@@ -638,7 +660,7 @@ export default function PLTable({
           })}
           {mmN >= 2 && <DeltaCell p1={lastG.actual} p2={prevG.actual} revCtx={revCtx} py="py-2" />}
         </tr>
-        {isExpanded && group.lineItems.map(li => renderLineItemMM(li, group, section, false))}
+        {isExpanded && group.lineItems.map(li => renderLineItemMM(li, group, section, false, dupeNames))}
       </Fragment>
     )
   }
@@ -979,8 +1001,14 @@ export default function PLTable({
               )
             })()}
 
-            {/* Inventory movement row */}
+            {/* Inventory movement row — FIX 3: use groups lookup by dept ID, not sections lookup */}
             {(() => {
+              function invText(cogmActual: number, cogsActual: number): string {
+                const diff = cogmActual - cogsActual
+                if (diff > 0)  return `฿${Math.round(diff).toLocaleString('en-US')} added to finished goods inventory`
+                if (diff < 0)  return `฿${Math.round(-diff).toLocaleString('en-US')} drawn from finished goods inventory`
+                return 'no change in inventory'
+              }
               if (isMultiMonth) {
                 return (
                   <tr style={{ backgroundColor: COGM_BG, borderTop: `1px dashed ${COGM_BORDER}` }}>
@@ -988,15 +1016,13 @@ export default function PLTable({
                       Inventory movement
                     </td>
                     {months!.map((mc, ci) => {
-                      const cogmSt = monthLookups![ci].sections.get(section.id) ?? ZERO
+                      const cogmSt = monthLookups![ci].groups.get(cogmDeptId) ?? ZERO
                       const cogsSt = monthLookups![ci].groups.get(cogsDeptId) ?? ZERO
-                      const diff   = cogmSt.actual - cogsSt.actual
-                      const dir    = diff > 0 ? 'added to' : diff < 0 ? 'drawn from' : 'no change in'
                       return (
                         <td key={`${mc.year}-${mc.month}`} colSpan={4}
                             className="px-2 py-1.5 text-[10px] italic text-center"
                             style={{ color: COGM_TEXT }}>
-                          {thb(cogmSt.actual)} − {thb(cogsSt.actual)} = {thb(Math.abs(diff))} {dir} inv.
+                          {invText(cogmSt.actual, cogsSt.actual)}
                         </td>
                       )
                     })}
@@ -1004,16 +1030,14 @@ export default function PLTable({
                   </tr>
                 )
               }
-              const cogmActual = section.total.actual
+              const cogmActual = group.subtotal.actual
               const cogsActual = cogsGroup?.subtotal.actual ?? 0
-              const diff       = cogmActual - cogsActual
-              const dir        = diff > 0 ? 'added to' : diff < 0 ? 'drawn from' : 'no change in'
               return (
                 <tr style={{ backgroundColor: COGM_BG, borderTop: `1px dashed ${COGM_BORDER}` }}>
                   <td colSpan={2 + 4 + (hasPeriod2 ? 5 : 0)}
                       className="px-3 py-1.5 text-[10px] italic"
                       style={{ color: COGM_TEXT }}>
-                    COGM {thb(cogmActual)} − COGS own make {thb(cogsActual)} = {thb(Math.abs(diff))} {dir} finished goods inventory
+                    {invText(cogmActual, cogsActual)}
                   </td>
                 </tr>
               )
