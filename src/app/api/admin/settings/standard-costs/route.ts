@@ -15,47 +15,24 @@ export async function GET() {
     const db = serviceClient()
     const { data, error } = await db
       .from('standard_costs')
-      .select('id, month, dm_per_ml, dl_per_ml, moh_per_ml, updated_at')
-      .order('month', { ascending: false })
+      .select('id, sku_id, effective_month, dm_per_ml, dl_per_ml, moh_per_ml, updated_at, skus(sku_name, sku_code)')
+      .order('effective_month', { ascending: false })
     if (error) return NextResponse.json([], { status: 200 })
-    return NextResponse.json(data ?? [])
+    const flat = (data ?? []).map((r: any) => ({
+      id:              r.id,
+      sku_id:          r.sku_id,
+      sku_name:        r.skus?.sku_name ?? '',
+      sku_code:        r.skus?.sku_code ?? '',
+      effective_month: r.effective_month,
+      dm_per_ml:       Number(r.dm_per_ml),
+      dl_per_ml:       Number(r.dl_per_ml),
+      moh_per_ml:      Number(r.moh_per_ml),
+      updated_at:      r.updated_at,
+    }))
+    return NextResponse.json(flat)
   } catch {
     return NextResponse.json([], { status: 200 })
   }
-}
-
-export async function POST(req: NextRequest) {
-  const user = await getCurrentUser()
-  if (!user || user.role !== 'admin') {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-  }
-
-  const body = await req.json() as {
-    month: string
-    dm_per_ml: number
-    dl_per_ml: number
-    moh_per_ml: number
-  }
-  if (!body.month) return NextResponse.json({ error: 'month required' }, { status: 400 })
-
-  const db = serviceClient()
-  const { data, error } = await db
-    .from('standard_costs')
-    .upsert(
-      {
-        month:      body.month,
-        dm_per_ml:  body.dm_per_ml  ?? 0,
-        dl_per_ml:  body.dl_per_ml  ?? 0,
-        moh_per_ml: body.moh_per_ml ?? 0,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'month' },
-    )
-    .select()
-    .single()
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json(data)
 }
 
 export async function DELETE(req: NextRequest) {
@@ -63,12 +40,10 @@ export async function DELETE(req: NextRequest) {
   if (!user || user.role !== 'admin') {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
-
-  const { month } = await req.json() as { month: string }
-  if (!month) return NextResponse.json({ error: 'month required' }, { status: 400 })
-
+  const { id } = await req.json() as { id: string }
+  if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 })
   const db = serviceClient()
-  const { error } = await db.from('standard_costs').delete().eq('month', month)
+  const { error } = await db.from('standard_costs').delete().eq('id', id)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ ok: true })
 }

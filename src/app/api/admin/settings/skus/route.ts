@@ -21,7 +21,7 @@ export async function GET() {
     const db = serviceClient()
     const { data, error } = await db
       .from('skus')
-      .select('id, sku_code, sku_name, uom, is_active, created_at')
+      .select('id, sku_code, sku_name, uom, volume_ml, is_active, created_at')
       .order('sku_code')
     if (error) return NextResponse.json([], { status: 200 })
     return NextResponse.json(data ?? [])

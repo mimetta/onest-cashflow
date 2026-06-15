@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { calculateCogs, fmtThb, type FgProductionRow, type StandardCostRow } from '@/lib/cogs-calculator'
+import { calculateCogs, fmtThb, type FgProductionRow, type SkuStandardCostRow } from '@/lib/cogs-calculator'
 
 type FgRow = {
   month:           string
@@ -22,7 +22,7 @@ function monthKey(y: number, m: number) {
 
 export default function FgProductionPage() {
   const [rows,        setRows]        = useState<FgRow[]>([])
-  const [stdCosts,    setStdCosts]    = useState<StandardCostRow[]>([])
+  const [stdCosts,    setStdCosts]    = useState<SkuStandardCostRow[]>([])
   const [loading,     setLoading]     = useState(true)
   const [adding,      setAdding]      = useState(false)
   const [saving,      setSaving]      = useState(false)
