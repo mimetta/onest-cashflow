@@ -11,6 +11,7 @@ function serviceClient() {
 }
 
 type ImportRow = {
+  sku_code?:       string
   sku_name:        string
   effective_month: string   // 'YYYY-MM-DD'
   dm_per_ml:       number
@@ -19,6 +20,7 @@ type ImportRow = {
 /**
  * POST /api/admin/settings/standard-costs/import
  * Upserts DM/ml per SKU per effective month.
+ * Matches by sku_code first; falls back to sku_name.
  */
 export async function POST(req: NextRequest) {
   const user = await getCurrentUser()
@@ -32,22 +34,33 @@ export async function POST(req: NextRequest) {
   }
 
   const db = serviceClient()
-  const { data: skus } = await db.from('skus').select('id, sku_name')
-  const skuMap = new Map<string, string>()
-  for (const s of skus ?? []) skuMap.set(s.sku_name.toLowerCase(), s.id)
+  const { data: skus } = await db.from('skus').select('id, sku_name, sku_code')
+  const skuNameMap = new Map<string, string>()
+  const skuCodeMap = new Map<string, string>()
+  for (const s of skus ?? []) {
+    skuNameMap.set(s.sku_name.toLowerCase(), s.id)
+    if (s.sku_code) skuCodeMap.set(s.sku_code.toLowerCase(), s.id)
+  }
 
   let imported = 0; let skipped = 0
   const errors: string[] = []
 
   for (const row of body.rows) {
-    const name  = row.sku_name?.trim()
-    if (!name) continue
-    const skuId = skuMap.get(name.toLowerCase())
+    const code = row.sku_code?.trim()
+    const name = row.sku_name?.trim()
+    if (!code && !name) continue
+
+    // Try sku_code first, then fall back to sku_name
+    const skuId = (code && skuCodeMap.get(code.toLowerCase()))
+               || (name && skuNameMap.get(name.toLowerCase()))
+               || undefined
+
     if (!skuId) {
       skipped++
-      errors.push(`SKU not found: "${name}"`)
+      errors.push(`SKU not found: ${code ? `code "${code}"` : ''}${code && name ? ' / ' : ''}${name ? `name "${name}"` : ''}`)
       continue
     }
+
     const { error } = await db
       .from('standard_costs')
       .upsert(
@@ -59,7 +72,7 @@ export async function POST(req: NextRequest) {
         },
         { onConflict: 'sku_id,effective_month' },
       )
-    if (error) { errors.push(`${name}: ${error.message}`); skipped++ }
+    if (error) { errors.push(`${code ?? name}: ${error.message}`); skipped++ }
     else imported++
   }
 

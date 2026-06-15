@@ -8,7 +8,7 @@ type StdCostRow = {
   effective_month: string; dm_per_ml: number; updated_at: string
 }
 type ScPreviewRow = {
-  sku_name: string; effective_month: string; dm_per_ml: number
+  sku_code?: string; sku_name: string; effective_month: string; dm_per_ml: number
   status: 'valid' | 'unknown_sku'
 }
 type SharedRates = {
@@ -24,13 +24,19 @@ function monthKey(y: number, m: number) { return `${y}-${String(m).padStart(2,'0
 function parseCsv(text: string): Omit<ScPreviewRow, 'status'>[] {
   const lines = text.trim().split('\n'); if (lines.length < 2) return []
   const h = lines[0].split(',').map(s => s.trim().toLowerCase())
-  const ni = h.indexOf('sku_name'); const mi = h.indexOf('effective_month')
-  const di = h.indexOf('dm_per_ml')
-  if (ni === -1 || mi === -1) return []
+  const ci = h.indexOf('sku_code'); const ni = h.indexOf('sku_name')
+  const mi = h.indexOf('effective_month'); const di = h.indexOf('dm_per_ml')
+  if (mi === -1) return []
   return lines.slice(1).map(line => {
     const c = line.split(',').map(v => v.trim())
-    return { sku_name: c[ni]??'', effective_month: c[mi]??'', dm_per_ml: parseFloat(c[di]??'0')||0 }
-  }).filter(r => r.sku_name && r.effective_month)
+    const row: Omit<ScPreviewRow, 'status'> = {
+      sku_name: (ni !== -1 ? c[ni] : '') ?? '',
+      effective_month: c[mi] ?? '',
+      dm_per_ml: parseFloat(c[di] ?? '0') || 0,
+    }
+    if (ci !== -1 && c[ci]) row.sku_code = c[ci]
+    return row
+  }).filter(r => r.effective_month && (r.sku_code || r.sku_name))
 }
 
 function downloadCsv(fn: string, content: string) {
@@ -81,7 +87,7 @@ export default function StandardCostsPage() {
       const ex = map.get(r.sku_id)
       if (!ex || r.effective_month > ex.effective_month) map.set(r.sku_id, r)
     }
-    return Array.from(map.values()).sort((a, b) => a.sku_name.localeCompare(b.sku_name))
+    return Array.from(map.values()).sort((a, b) => a.sku_code.localeCompare(b.sku_code))
   }, [rows])
 
   function historyFor(skuId: string) {
@@ -100,8 +106,14 @@ export default function StandardCostsPage() {
     const reader = new FileReader()
     reader.onload = ev => {
       const parsed = parseCsv(ev.target?.result as string)
-      const skuSet = new Set(skus.map(s => s.sku_name.toLowerCase()))
-      setPreview(parsed.map(r => ({ ...r, status: skuSet.has(r.sku_name.toLowerCase()) ? 'valid' : 'unknown_sku' })))
+      const skuNameSet = new Set(skus.map(s => s.sku_name.toLowerCase()))
+      const skuCodeSet = new Set(skus.map(s => s.sku_code.toLowerCase()))
+      setPreview(parsed.map(r => ({
+        ...r,
+        status: (r.sku_code && skuCodeSet.has(r.sku_code.toLowerCase())) || skuNameSet.has(r.sku_name.toLowerCase())
+          ? 'valid'
+          : 'unknown_sku',
+      })))
       setImportResult(null)
     }
     reader.readAsText(file); e.target.value = ''
@@ -128,10 +140,10 @@ export default function StandardCostsPage() {
   function handleDownloadTemplate() {
     const mk = monthKey(year, month)
     const active = skus.filter(s => s.is_active)
-    const rows = active.length
-      ? active.map(s => `${s.sku_name},${mk},0.000000`).join('\n')
-      : `Song Wat Body Wash,${mk},0.25\nTalat Noi Hand Cream,${mk},0.18`
-    downloadCsv('standard_costs_template.csv', `sku_name,effective_month,dm_per_ml\n${rows}\n`)
+    const dataRows = active.length
+      ? active.map(s => `${s.sku_code},${s.sku_name},${mk},0.000000`).join('\n')
+      : `OWB-250,Song Wat Body Wash,${mk},0.25\nTNC-100,Talat Noi Hand Cream,${mk},0.18`
+    downloadCsv('standard_costs_template.csv', `sku_code,sku_name,effective_month,dm_per_ml\n${dataRows}\n`)
   }
 
   const mk = monthKey(year, month)
@@ -230,7 +242,8 @@ export default function StandardCostsPage() {
             <table className="w-full text-xs">
               <thead className="bg-gray-50 sticky top-0">
                 <tr>
-                  <th className="px-3 py-2 text-left font-semibold text-gray-500">SKU</th>
+                  <th className="px-3 py-2 text-left font-semibold text-gray-500">SKU Code</th>
+                  <th className="px-3 py-2 text-left font-semibold text-gray-500">SKU Name</th>
                   <th className="px-3 py-2 text-left font-semibold text-gray-500">Effective Month</th>
                   <th className="px-3 py-2 text-right font-semibold text-blue-500">DM/ml</th>
                   <th className="px-3 py-2 text-left font-semibold text-gray-500">Status</th>
@@ -239,7 +252,8 @@ export default function StandardCostsPage() {
               <tbody className="divide-y divide-gray-100">
                 {preview.map((r, i) => (
                   <tr key={i} className={r.status === 'unknown_sku' ? 'opacity-50 bg-red-50' : ''}>
-                    <td className="px-3 py-1.5 text-gray-900">{r.sku_name}</td>
+                    <td className="px-3 py-1.5 font-mono text-gray-600">{r.sku_code ?? '—'}</td>
+                    <td className="px-3 py-1.5 text-gray-900">{r.sku_name || '—'}</td>
                     <td className="px-3 py-1.5 text-gray-700">{fmtMonth(r.effective_month)}</td>
                     <td className="px-3 py-1.5 text-right tabular-nums text-blue-700">{fmtPerMl(r.dm_per_ml)}</td>
                     <td className="px-3 py-1.5">

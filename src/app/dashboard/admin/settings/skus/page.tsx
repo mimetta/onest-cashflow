@@ -7,7 +7,7 @@ type Sku = {
 }
 
 type PreviewRow = {
-  name: string; volume_ml: number
+  sku_code?: string; name: string; volume_ml: number
   dm_per_ml?: number; effective_month?: string
   status: 'new' | 'update'
 }
@@ -19,7 +19,7 @@ function parseCsv(text: string): Omit<PreviewRow, 'status'>[] {
   if (lines.length < 2) return []
   const headers = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/\s+/g, '_'))
   const col = (k: string) => headers.indexOf(k)
-  const ni = col('sku_name'); const vi = col('volume_ml')
+  const ci = col('sku_code'); const ni = col('sku_name'); const vi = col('volume_ml')
   const di = col('dm_per_ml'); const mi = col('effective_month')
   if (ni === -1) return []
   return lines.slice(1)
@@ -28,6 +28,7 @@ function parseCsv(text: string): Omit<PreviewRow, 'status'>[] {
       const row: Omit<PreviewRow, 'status'> = {
         name: c[ni] ?? '', volume_ml: parseFloat(c[vi] ?? '0') || 0,
       }
+      if (ci !== -1 && c[ci]) row.sku_code = c[ci]
       if (di !== -1 && c[di]) row.dm_per_ml = parseFloat(c[di]) || 0
       if (mi !== -1 && c[mi]) row.effective_month = c[mi]
       return row
@@ -73,7 +74,7 @@ export default function SkusPage() {
     })
     if (res.ok) {
       const sku = await res.json()
-      setSkus(prev => [...prev, sku].sort((a, b) => a.sku_name.localeCompare(b.sku_name)))
+      setSkus(prev => [...prev, sku].sort((a, b) => a.sku_code.localeCompare(b.sku_code)))
       setForm({ sku_code: '', sku_name: '', uom: 'ml' }); setAdding(false)
     } else {
       const j = await res.json(); setFormError(j.error ?? 'Failed')
@@ -108,7 +109,7 @@ export default function SkusPage() {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         rows: preview.map(r => ({
-          name: r.name, volume_ml: r.volume_ml,
+          sku_code: r.sku_code, name: r.name, volume_ml: r.volume_ml,
           dm_per_ml: r.dm_per_ml, effective_month: r.effective_month,
         })),
       }),
@@ -122,11 +123,11 @@ export default function SkusPage() {
   }
 
   function handleDownloadTemplate() {
-    downloadCsv('sku_import_template.csv',
-      `sku_name,volume_ml,dm_per_ml,effective_month\n` +
-      `Song Wat Body Wash,250,0.25,${TODAY_MONTH}\n` +
-      `Talat Noi Hand Cream,100,0.18,${TODAY_MONTH}\n`
-    )
+    const active = skus.filter(s => s.is_active)
+    const dataRows = active.length
+      ? active.map(s => `${s.sku_code},${s.sku_name},${s.volume_ml ?? ''},0.000000,${TODAY_MONTH}`).join('\n')
+      : `OWB-250,Song Wat Body Wash,250,0.25,${TODAY_MONTH}\nTNC-100,Talat Noi Hand Cream,100,0.18,${TODAY_MONTH}`
+    downloadCsv('sku_import_template.csv', `sku_code,sku_name,volume_ml,dm_per_ml,effective_month\n${dataRows}\n`)
   }
 
   const hasDm = preview?.some(r => r.dm_per_ml !== undefined)
@@ -165,7 +166,7 @@ export default function SkusPage() {
                   {f === 'sku_code' ? 'SKU Code' : f === 'sku_name' ? 'SKU Name' : 'Unit (UoM)'}
                 </label>
                 <input value={form[f]} onChange={e => setForm(p => ({ ...p, [f]: e.target.value }))}
-                  placeholder={f === 'sku_code' ? 'FG-001' : f === 'sku_name' ? 'Product A 250ml' : 'ml'}
+                  placeholder={f === 'sku_code' ? 'OWB-250' : f === 'sku_name' ? 'Product A 250ml' : 'ml'}
                   required={f !== 'uom'}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400" />
               </div>
@@ -199,6 +200,7 @@ export default function SkusPage() {
             <table className="w-full text-xs">
               <thead className="bg-gray-50 sticky top-0">
                 <tr>
+                  <th className="px-3 py-2 text-left font-semibold text-gray-500">SKU Code</th>
                   <th className="px-3 py-2 text-left font-semibold text-gray-500">SKU Name</th>
                   <th className="px-3 py-2 text-right font-semibold text-gray-500">Volume (ml)</th>
                   {hasDm && <th className="px-3 py-2 text-right font-semibold text-gray-500">DM/ml</th>}
@@ -209,6 +211,7 @@ export default function SkusPage() {
               <tbody className="divide-y divide-gray-100">
                 {preview.map((r, i) => (
                   <tr key={i}>
+                    <td className="px-3 py-1.5 font-mono text-gray-600">{r.sku_code ?? <span className="text-gray-300 italic">auto</span>}</td>
                     <td className="px-3 py-1.5 text-gray-900">{r.name}</td>
                     <td className="px-3 py-1.5 text-right tabular-nums text-gray-700">{r.volume_ml}</td>
                     {hasDm && <td className="px-3 py-1.5 text-right tabular-nums text-blue-700">{r.dm_per_ml ?? '—'}</td>}
@@ -252,8 +255,8 @@ export default function SkusPage() {
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Code</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Name</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">SKU Code</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">SKU Name</th>
                 <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Volume (ml)</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">UoM</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Status</th>
@@ -263,7 +266,7 @@ export default function SkusPage() {
             <tbody className="divide-y divide-gray-100">
               {skus.map(sku => (
                 <tr key={sku.id} className={`hover:bg-gray-50 ${!sku.is_active ? 'opacity-50' : ''}`}>
-                  <td className="px-4 py-3 font-mono text-xs font-medium text-gray-700">{sku.sku_code}</td>
+                  <td className="px-4 py-3 font-mono text-xs font-semibold text-gray-700">{sku.sku_code}</td>
                   <td className="px-4 py-3 text-gray-900">{sku.sku_name}</td>
                   <td className="px-4 py-3 text-right tabular-nums text-gray-600">
                     {sku.volume_ml != null ? sku.volume_ml.toLocaleString('en-US') : '—'}

@@ -77,6 +77,7 @@ export default function SalesUnitsPage() {
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">SKU Code</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">SKU Name</th>
                 <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Vol / unit (ml)</th>
                 <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Units Sold</th>
@@ -90,10 +91,8 @@ export default function SalesUnitsPage() {
                 const isSaving = saving.has(sku.id)
                 return (
                   <tr key={sku.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3">
-                      <div className="text-sm font-medium text-gray-900">{sku.sku_name}</div>
-                      <div className="text-xs text-gray-400 font-mono">{sku.sku_code}</div>
-                    </td>
+                    <td className="px-4 py-3 font-mono text-xs font-semibold text-gray-700">{sku.sku_code}</td>
+                    <td className="px-4 py-3 text-sm text-gray-900">{sku.sku_name}</td>
                     <td className="px-4 py-3 text-right tabular-nums text-gray-600">
                       {sku.volume_ml != null ? `${sku.volume_ml} ml` : '—'}
                     </td>
@@ -126,7 +125,7 @@ export default function SalesUnitsPage() {
               })}
               {/* Totals row */}
               <tr className="bg-gray-50 border-t-2 border-gray-200">
-                <td colSpan={2} className="px-4 py-2.5 text-sm font-semibold text-gray-700">Total</td>
+                <td colSpan={3} className="px-4 py-2.5 text-sm font-semibold text-gray-700">Total</td>
                 <td className="px-4 py-2.5 text-right tabular-nums font-bold text-gray-900">
                   {totalUnits.toLocaleString('en-US')}
                 </td>
