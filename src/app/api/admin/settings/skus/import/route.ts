@@ -19,8 +19,17 @@ function toSkuCode(name: string): string {
     .slice(0, 50)
 }
 
-type ImportRow = { name: string; volume_ml: number }
+type ImportRow = {
+  name:            string
+  volume_ml:       number
+  dm_per_ml?:      number
+  effective_month?: string   // 'YYYY-MM-DD' — if present, write to standard_costs
+}
 
+/**
+ * POST /api/admin/settings/skus/import
+ * Upserts skus (name, volume_ml) and optionally upserts standard_costs (dm_per_ml).
+ */
 export async function POST(req: NextRequest) {
   const user = await getCurrentUser()
   if (!user || user.role !== 'admin') {
@@ -33,48 +42,52 @@ export async function POST(req: NextRequest) {
   }
 
   const db = serviceClient()
+  const { data: existing } = await db.from('skus').select('id, sku_name')
+  const nameMap = new Map<string, string>()
+  for (const s of existing ?? []) nameMap.set(s.sku_name.toLowerCase(), s.id)
 
-  // Load all existing SKUs for name matching (case-insensitive)
-  const { data: existing } = await db.from('skus').select('id, sku_name, sku_code')
-  const nameMap = new Map<string, { id: string; sku_code: string }>()
-  for (const s of existing ?? []) nameMap.set(s.sku_name.toLowerCase(), { id: s.id, sku_code: s.sku_code })
-
-  let imported = 0
-  let updated  = 0
+  let imported = 0; let updated = 0
   const errors: string[] = []
 
   for (const row of body.rows) {
     const name = row.name?.trim()
     if (!name) continue
 
-    const existing = nameMap.get(name.toLowerCase())
-    if (existing) {
-      // Update volume_ml on existing SKU
-      const { error } = await db
-        .from('skus')
-        .update({ volume_ml: row.volume_ml })
-        .eq('id', existing.id)
-      if (error) errors.push(`${name}: ${error.message}`)
-      else updated++
+    let skuId = nameMap.get(name.toLowerCase())
+
+    if (skuId) {
+      // Update existing
+      const { error } = await db.from('skus').update({ volume_ml: row.volume_ml }).eq('id', skuId)
+      if (error) { errors.push(`${name}: ${error.message}`); continue }
+      updated++
     } else {
-      // Insert new SKU with auto-generated code
+      // Insert new with auto-generated code
       const baseCode = toSkuCode(name)
-      // Try the base code; append suffix if collision
-      let code = baseCode
-      let attempt = 0
+      let code = baseCode; let attempt = 0
       while (true) {
-        const { error } = await db
+        const { data, error } = await db
           .from('skus')
           .insert({ sku_code: code, sku_name: name, uom: 'ml', volume_ml: row.volume_ml })
-        if (!error) { imported++; break }
-        if (error.code === '23505' && error.message.includes('sku_code')) {
-          attempt++
-          code = `${baseCode.slice(0, 47)}-${attempt}`
+          .select('id')
+          .single()
+        if (!error && data) { skuId = data.id; nameMap.set(name.toLowerCase(), data.id); imported++; break }
+        if (error?.code === '23505' && error.message.includes('sku_code')) {
+          attempt++; code = `${baseCode.slice(0, 47)}-${attempt}`
         } else {
-          errors.push(`${name}: ${error.message}`)
-          break
+          errors.push(`${name}: ${error?.message ?? 'insert failed'}`); break
         }
       }
+    }
+
+    // If dm_per_ml and effective_month provided, upsert standard_costs
+    if (skuId && row.dm_per_ml !== undefined && row.effective_month) {
+      const { error } = await db
+        .from('standard_costs')
+        .upsert(
+          { sku_id: skuId, effective_month: row.effective_month, dm_per_ml: row.dm_per_ml, updated_at: new Date().toISOString() },
+          { onConflict: 'sku_id,effective_month' },
+        )
+      if (error) errors.push(`DM for ${name}: ${error.message}`)
     }
   }
 

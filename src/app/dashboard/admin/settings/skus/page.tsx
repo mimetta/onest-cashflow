@@ -2,28 +2,35 @@
 import { useState, useEffect, useRef } from 'react'
 
 type Sku = {
-  id: string
-  sku_code: string
-  sku_name: string
-  uom: string
-  volume_ml: number | null
-  is_active: boolean
-  created_at: string
+  id: string; sku_code: string; sku_name: string
+  uom: string; volume_ml: number | null; is_active: boolean
 }
 
-type PreviewRow = { name: string; volume_ml: number; status: 'new' | 'update' }
+type PreviewRow = {
+  name: string; volume_ml: number
+  dm_per_ml?: number; effective_month?: string
+  status: 'new' | 'update'
+}
 
-function parseCsv(text: string): { name: string; volume_ml: number }[] {
+const TODAY_MONTH = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-01`
+
+function parseCsv(text: string): Omit<PreviewRow, 'status'>[] {
   const lines = text.trim().split('\n')
   if (lines.length < 2) return []
-  const headers = lines[0].split(',').map(h => h.trim().toLowerCase())
-  const ni = headers.indexOf('sku_name')
-  const vi = headers.indexOf('volume_ml')
+  const headers = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/\s+/g, '_'))
+  const col = (k: string) => headers.indexOf(k)
+  const ni = col('sku_name'); const vi = col('volume_ml')
+  const di = col('dm_per_ml'); const mi = col('effective_month')
   if (ni === -1) return []
   return lines.slice(1)
     .map(line => {
-      const cols = line.split(',').map(c => c.trim())
-      return { name: cols[ni] ?? '', volume_ml: parseFloat(cols[vi] ?? '0') || 0 }
+      const c = line.split(',').map(v => v.trim())
+      const row: Omit<PreviewRow, 'status'> = {
+        name: c[ni] ?? '', volume_ml: parseFloat(c[vi] ?? '0') || 0,
+      }
+      if (di !== -1 && c[di]) row.dm_per_ml = parseFloat(c[di]) || 0
+      if (mi !== -1 && c[mi]) row.effective_month = c[mi]
+      return row
     })
     .filter(r => r.name)
 }
@@ -59,7 +66,6 @@ export default function SkusPage() {
 
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault()
-    if (!form.sku_code.trim() || !form.sku_name.trim()) return
     setSaving(true); setFormError(null)
     const res = await fetch('/api/admin/settings/skus', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -67,12 +73,10 @@ export default function SkusPage() {
     })
     if (res.ok) {
       const sku = await res.json()
-      setSkus(prev => [...prev, sku].sort((a, b) => a.sku_code.localeCompare(b.sku_code)))
-      setForm({ sku_code: '', sku_name: '', uom: 'ml' })
-      setAdding(false)
+      setSkus(prev => [...prev, sku].sort((a, b) => a.sku_name.localeCompare(b.sku_name)))
+      setForm({ sku_code: '', sku_name: '', uom: 'ml' }); setAdding(false)
     } else {
-      const j = await res.json()
-      setFormError(j.error ?? 'Failed to add SKU')
+      const j = await res.json(); setFormError(j.error ?? 'Failed')
     }
     setSaving(false)
   }
@@ -82,29 +86,19 @@ export default function SkusPage() {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: sku.id, is_active: !sku.is_active }),
     })
-    if (res.ok) {
-      const updated = await res.json()
-      setSkus(prev => prev.map(s => s.id === sku.id ? updated : s))
-    }
+    if (res.ok) setSkus(prev => prev.map(s => s.id === sku.id ? { ...s, is_active: !s.is_active } : s))
   }
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
+    const file = e.target.files?.[0]; if (!file) return
     const reader = new FileReader()
     reader.onload = ev => {
       const rows = parseCsv(ev.target?.result as string)
       const nameSet = new Set(skus.map(s => s.sku_name.toLowerCase()))
-      const preview: PreviewRow[] = rows.map(r => ({
-        name:      r.name,
-        volume_ml: r.volume_ml,
-        status:    nameSet.has(r.name.toLowerCase()) ? 'update' : 'new',
-      }))
-      setPreview(preview)
+      setPreview(rows.map(r => ({ ...r, status: nameSet.has(r.name.toLowerCase()) ? 'update' : 'new' })))
       setImportResult(null)
     }
-    reader.readAsText(file)
-    e.target.value = ''
+    reader.readAsText(file); e.target.value = ''
   }
 
   async function handleImport() {
@@ -112,26 +106,33 @@ export default function SkusPage() {
     setImporting(true); setImportResult(null)
     const res = await fetch('/api/admin/settings/skus/import', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ rows: preview.map(r => ({ name: r.name, volume_ml: r.volume_ml })) }),
+      body: JSON.stringify({
+        rows: preview.map(r => ({
+          name: r.name, volume_ml: r.volume_ml,
+          dm_per_ml: r.dm_per_ml, effective_month: r.effective_month,
+        })),
+      }),
     })
     if (res.ok) {
       const j = await res.json()
-      setImportResult(`Imported ${j.imported} new, updated ${j.updated}${j.errors?.length ? ` · ${j.errors.length} error(s)` : ''}`)
-      setPreview(null)
-      await load()
-    } else {
-      setImportResult('Import failed')
-    }
+      setImportResult(`Created ${j.imported}, updated ${j.updated}${j.errors?.length ? ` · ${j.errors.length} error(s)` : ''}`)
+      setPreview(null); await load()
+    } else { setImportResult('Import failed') }
     setImporting(false)
   }
 
   function handleDownloadTemplate() {
-    downloadCsv('sku_template.csv', 'sku_name,volume_ml\nSong Wat Body Wash,250\nTalat Noi Hand Cream,100\n')
+    downloadCsv('sku_import_template.csv',
+      `sku_name,volume_ml,dm_per_ml,effective_month\n` +
+      `Song Wat Body Wash,250,0.25,${TODAY_MONTH}\n` +
+      `Talat Noi Hand Cream,100,0.18,${TODAY_MONTH}\n`
+    )
   }
+
+  const hasDm = preview?.some(r => r.dm_per_ml !== undefined)
 
   return (
     <div className="space-y-4">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-semibold text-gray-900">SKU Master</h2>
@@ -154,29 +155,21 @@ export default function SkusPage() {
         </div>
       </div>
 
-      {/* Manual add form */}
       {adding && (
         <form onSubmit={handleAdd} className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm space-y-3">
           <h3 className="text-sm font-semibold text-gray-700">New SKU</h3>
           <div className="grid grid-cols-3 gap-3">
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">SKU Code</label>
-              <input value={form.sku_code} onChange={e => setForm(f => ({ ...f, sku_code: e.target.value }))}
-                placeholder="e.g. FG-001"
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400" required />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">SKU Name</label>
-              <input value={form.sku_name} onChange={e => setForm(f => ({ ...f, sku_name: e.target.value }))}
-                placeholder="e.g. Product A 250ml"
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400" required />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Unit (UoM)</label>
-              <input value={form.uom} onChange={e => setForm(f => ({ ...f, uom: e.target.value }))}
-                placeholder="ml"
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400" />
-            </div>
+            {(['sku_code', 'sku_name', 'uom'] as const).map(f => (
+              <div key={f}>
+                <label className="block text-xs font-medium text-gray-500 mb-1">
+                  {f === 'sku_code' ? 'SKU Code' : f === 'sku_name' ? 'SKU Name' : 'Unit (UoM)'}
+                </label>
+                <input value={form[f]} onChange={e => setForm(p => ({ ...p, [f]: e.target.value }))}
+                  placeholder={f === 'sku_code' ? 'FG-001' : f === 'sku_name' ? 'Product A 250ml' : 'ml'}
+                  required={f !== 'uom'}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400" />
+              </div>
+            ))}
           </div>
           {formError && <p className="text-xs text-red-500">{formError}</p>}
           <div className="flex gap-2">
@@ -192,23 +185,24 @@ export default function SkusPage() {
         </form>
       )}
 
-      {/* CSV import preview */}
+      {/* CSV preview */}
       {preview && (
         <div className="bg-white border border-indigo-200 rounded-xl p-4 shadow-sm space-y-3">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold text-gray-700">
               Import Preview — {preview.length} row{preview.length !== 1 ? 's' : ''}
+              {hasDm && <span className="ml-2 text-xs font-normal text-indigo-500">· includes DM/ml → will update Standard Costs</span>}
             </h3>
-            <button onClick={() => setPreview(null)} className="text-xs text-gray-400 hover:text-gray-700">
-              Discard
-            </button>
+            <button onClick={() => setPreview(null)} className="text-xs text-gray-400 hover:text-gray-700">Discard</button>
           </div>
-          <div className="overflow-x-auto max-h-64 overflow-y-auto rounded-lg border border-gray-100">
+          <div className="overflow-x-auto max-h-60 overflow-y-auto rounded-lg border border-gray-100">
             <table className="w-full text-xs">
               <thead className="bg-gray-50 sticky top-0">
                 <tr>
                   <th className="px-3 py-2 text-left font-semibold text-gray-500">SKU Name</th>
                   <th className="px-3 py-2 text-right font-semibold text-gray-500">Volume (ml)</th>
+                  {hasDm && <th className="px-3 py-2 text-right font-semibold text-gray-500">DM/ml</th>}
+                  {hasDm && <th className="px-3 py-2 text-left font-semibold text-gray-500">Effective Month</th>}
                   <th className="px-3 py-2 text-left font-semibold text-gray-500">Status</th>
                 </tr>
               </thead>
@@ -217,19 +211,19 @@ export default function SkusPage() {
                   <tr key={i}>
                     <td className="px-3 py-1.5 text-gray-900">{r.name}</td>
                     <td className="px-3 py-1.5 text-right tabular-nums text-gray-700">{r.volume_ml}</td>
+                    {hasDm && <td className="px-3 py-1.5 text-right tabular-nums text-blue-700">{r.dm_per_ml ?? '—'}</td>}
+                    {hasDm && <td className="px-3 py-1.5 text-gray-600">{r.effective_month ?? '—'}</td>}
                     <td className="px-3 py-1.5">
-                      <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                      <span className={`inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium ${
                         r.status === 'update' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'
-                      }`}>
-                        {r.status === 'update' ? 'Update existing' : 'New'}
-                      </span>
+                      }`}>{r.status === 'update' ? 'Update' : 'New'}</span>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex gap-2">
             <button onClick={handleImport} disabled={importing}
               className="px-4 py-2 text-sm font-medium bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50">
               {importing ? 'Importing…' : `Import ${preview.length} rows`}
@@ -258,11 +252,11 @@ export default function SkusPage() {
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Code</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Name</th>
-                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Volume (ml)</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">UoM</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Code</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Name</th>
+                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Volume (ml)</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">UoM</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Status</th>
                 <th className="px-4 py-3" />
               </tr>
             </thead>
@@ -276,11 +270,9 @@ export default function SkusPage() {
                   </td>
                   <td className="px-4 py-3 text-gray-500">{sku.uom}</td>
                   <td className="px-4 py-3">
-                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                    <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${
                       sku.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'
-                    }`}>
-                      {sku.is_active ? 'Active' : 'Inactive'}
-                    </span>
+                    }`}>{sku.is_active ? 'Active' : 'Inactive'}</span>
                   </td>
                   <td className="px-4 py-3 text-right">
                     <button onClick={() => toggleActive(sku)}
