@@ -158,6 +158,11 @@ export const PL_SECTIONS: readonly PLSection[] = [
         deptFullName: 'Cost of Goods Manufactured',
         subtotalLabel: 'COGM subtotal',
       },
+      {
+        deptCode:     'COGM',
+        deptFullName: 'Factory Operation',
+        subtotalLabel: 'Factory Overhead subtotal',
+      },
     ],
   },
 
@@ -169,11 +174,6 @@ export const PL_SECTIONS: readonly PLSection[] = [
     totalId:    'total_opex',
     defaultCollapsed: true,
     groups: [
-      {
-        deptCode:     'Factory Operation',
-        deptFullName: 'Factory Operation',
-        subtotalLabel: 'Factory Operation subtotal',
-      },
       {
         deptCode:     'MKT & SALES',
         deptFullName: 'MARKETING & SALES',
