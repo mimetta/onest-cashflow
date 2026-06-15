@@ -28,6 +28,7 @@ export type PLLineItemRow = {
   categoryId: string
   categoryName: string
   categoryOwnerName: string | null  // categories.owner_name
+  cogmGroup: 'DM' | 'DL' | 'MOH' | null
   isHrCategory: boolean
   lineItemType: 'REVENUE' | 'EXPENSE'
   ownerName: string | null          // line_items.owner_name — takes priority over categoryOwnerName

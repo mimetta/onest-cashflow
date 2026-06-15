@@ -60,6 +60,7 @@ function buildPLDataFromMaps({
       categoryId:        cat.id ?? '',
       categoryName:      cat.name ?? '',
       categoryOwnerName: cat.owner_name ?? null,
+      cogmGroup:         (cat as any).cogm_group ?? null,
       isHrCategory:      cat.is_hr_category ?? false,
       lineItemType:      li.type ?? 'EXPENSE',
       ownerName:         (li as any).owner_name ?? null,
@@ -116,7 +117,7 @@ export async function getPLData(year: number, month: number): Promise<PLData> {
   const [lineItemsRes, deptsRes, budgetsRes, expensesRes] = await Promise.all([
     supabase.from('line_items').select(`
       id, name, subcategory_l1, type, owner_name,
-      categories ( id, name, owner_name, is_hr_category, departments ( id, code, full_name ) )
+      categories ( id, name, cogm_group, owner_name, is_hr_category, departments ( id, code, full_name ) )
     `).order('name'),
     supabase.from('departments').select('id, code, full_name, owner_name'),
     supabase.from('budget_submissions')
@@ -158,7 +159,7 @@ export async function getPLDataAggregated(
   const [lineItemsRes, deptsRes, budgetRes, expensesRes] = await Promise.all([
     supabase.from('line_items').select(`
       id, name, subcategory_l1, type, owner_name,
-      categories ( id, name, owner_name, is_hr_category, departments ( id, code, full_name ) )
+      categories ( id, name, cogm_group, owner_name, is_hr_category, departments ( id, code, full_name ) )
     `).order('name'),
     supabase.from('departments').select('id, code, full_name, owner_name'),
     supabase.from('budget_submissions')
@@ -202,7 +203,7 @@ export async function getPLDataForMonths(
   const [lineItemsRes, deptsRes, budgetsRes, expensesRes] = await Promise.all([
     supabase.from('line_items').select(`
       id, name, subcategory_l1, type, owner_name,
-      categories ( id, name, owner_name, is_hr_category, departments ( id, code, full_name ) )
+      categories ( id, name, cogm_group, owner_name, is_hr_category, departments ( id, code, full_name ) )
     `).order('name'),
     supabase.from('departments').select('id, code, full_name, owner_name'),
     supabase.from('budget_submissions')

@@ -341,7 +341,9 @@ export default function PLTable({
   const canEdit    = role === 'admin' || role === 'ceo'
   const isAdmin    = role === 'admin'
 
-  const [ownerOptions, setOwnerOptions] = useState<string[]>([])
+  const [ownerOptions,  setOwnerOptions]  = useState<string[]>([])
+  const [fgProduction,  setFgProduction]  = useState<Record<string, number>>({})
+
   useEffect(() => {
     if (!isAdmin) return
     fetch('/api/pl/owner/options')
@@ -349,6 +351,26 @@ export default function PLTable({
       .then(setOwnerOptions)
       .catch(() => {})
   }, [isAdmin])
+
+  useEffect(() => {
+    fetch('/api/admin/settings/fg-production')
+      .then(r => r.ok ? r.json() : [])
+      .then((rows: { month: string; total_volume_ml: number }[]) => {
+        const map: Record<string, number> = {}
+        for (const row of rows) map[String(row.month).slice(0, 10)] = row.total_volume_ml
+        setFgProduction(map)
+      })
+      .catch(() => {})
+  }, [])
+
+  async function saveFgProduction(monthKey: string, volume: number) {
+    await fetch('/api/admin/settings/fg-production', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ month: monthKey, total_volume_ml: volume }),
+    })
+    setFgProduction(prev => ({ ...prev, [monthKey]: volume }))
+  }
 
   const [p1gb, p1ga] = useMemo(() => {
     if (isMultiMonth) return [0, 0]
@@ -921,6 +943,22 @@ export default function PLTable({
       return 'no change in inventory'
     }
 
+    // Collect ALL line items across all dept groups, re-grouped by cogmGroup
+    const allItems = section.groups.flatMap(g => g.lineItems)
+    const COGM_SUB_GROUPS = [
+      { colKey: 'cogm_DM',  cogmGroup: 'DM'  as const, label: 'Direct Materials (DM)' },
+      { colKey: 'cogm_DL',  cogmGroup: 'DL'  as const, label: 'Direct Labor (DL)' },
+      { colKey: 'cogm_MOH', cogmGroup: 'MOH' as const, label: 'Manufacturing Overhead (MOH)' },
+    ]
+
+    // Standard Cost/ml helpers (comparison mode)
+    const monthKey   = `${String(p1Year)}-${String(p1Month).padStart(2, '0')}-01`
+    const fgVolume   = fgProduction[monthKey] ?? null
+    function fmtPerMl(n: number | null): string {
+      if (n === null || !isFinite(n) || n === 0) return '—'
+      return `฿${n.toFixed(2)}/ml`
+    }
+
     return (
       <Fragment key={section.id}>
         {/* Section header — shows Total COGM (all groups) */}
@@ -974,65 +1012,63 @@ export default function PLTable({
 
         {isSectionOpen && (
           <>
-            {/* One collapsible sub-group per COGM group (core manufacturing + factory overhead) */}
-            {section.groups.map(group => {
-              const isGroupOpen = collapse.depts[group.departmentId] ?? false
+            {/* DM / DL / MOH sub-groups, derived from categories.cogm_group */}
+            {COGM_SUB_GROUPS.map(({ colKey, cogmGroup, label }) => {
+              const subItems  = allItems.filter(li => li.cogmGroup === cogmGroup)
+              const isGroupOpen = collapse.depts[colKey] ?? false
+              const subTotal  = subItems.reduce(addAmounts, ZERO)
+              const p2SubTotal = p2
+                ? subItems.reduce((acc: Amounts, li) => addAmounts(acc, p2.items[li.lineItemId] ?? ZERO), ZERO)
+                : ZERO
               return (
-                <Fragment key={group.departmentId}>
-                  {/* Group header */}
+                <Fragment key={colKey}>
+                  {/* Sub-group header */}
                   <tr style={{ backgroundColor: COGM_GRP_BG, borderLeft: `2px solid ${COGM_BORDER}` }}
                       className="cursor-pointer select-none"
-                      onClick={() => toggleDept(group.departmentId)}>
+                      onClick={() => toggleDept(colKey)}>
                     <td className="pl-4 pr-3 py-2 text-xs font-semibold" style={{ color: COGM_TEXT }}>
                       <span className="mr-2 text-[10px]" style={{ color: COGM_TEXT }}>
                         {isGroupOpen ? '▼' : '▶'}
                       </span>
-                      {group.deptFullName}
+                      {label}
                     </td>
-                    <OwnerCell value={group.ownerName} py="py-2"
-                      type="department" id={group.departmentId}
-                      isEditable={isAdmin} suggestions={ownerOptions} />
+                    <OwnerCell py="py-2" />
                     {isMultiMonth ? (
                       <>
                         {months!.map((mc, ci) => {
-                          const g  = monthLookups![ci].groups.get(group.departmentId) ?? ZERO
+                          const cgTotal = subItems.reduce((acc, li) => addAmounts(acc, monthLookups![ci].lineItems.get(li.lineItemId) ?? ZERO), ZERO)
                           const gb = monthLookups![ci].grossBudget
                           const ga = monthLookups![ci].grossActual
                           return (
                             <Fragment key={`${mc.year}-${mc.month}`}>
-                              <AmtCell n={g.budget} py="py-2" />
-                              <PctCell v={g.budget} base={gb} py="py-2" />
-                              <AmtCell n={g.actual} py="py-2" />
-                              <PctCell v={g.actual} base={ga} py="py-2" />
+                              <AmtCell n={cgTotal.budget} py="py-2" />
+                              <PctCell v={cgTotal.budget} base={gb} py="py-2" />
+                              <AmtCell n={cgTotal.actual} py="py-2" />
+                              <PctCell v={cgTotal.actual} base={ga} py="py-2" />
                             </Fragment>
                           )
                         })}
                         {mmN >= 2 && (() => {
-                          const lastG = monthLookups![mmLast].groups.get(group.departmentId) ?? ZERO
-                          const prevG = monthLookups![mmPrev].groups.get(group.departmentId) ?? ZERO
-                          return <DeltaCell p1={lastG.actual} p2={prevG.actual} revCtx={false} py="py-2" />
+                          const last = subItems.reduce((acc, li) => addAmounts(acc, monthLookups![mmLast].lineItems.get(li.lineItemId) ?? ZERO), ZERO)
+                          const prev = subItems.reduce((acc, li) => addAmounts(acc, monthLookups![mmPrev].lineItems.get(li.lineItemId) ?? ZERO), ZERO)
+                          return <DeltaCell p1={last.actual} p2={prev.actual} revCtx={false} py="py-2" />
                         })()}
                       </>
                     ) : (
                       <>
-                        <PCols a={group.subtotal} gb={p1gb} ga={p1ga} py="py-2" />
-                        {hasPeriod2 && (() => {
-                          const p2g = p2
-                            ? group.lineItems.reduce((acc: Amounts, li) => addAmounts(acc, p2.items[li.lineItemId] ?? ZERO), ZERO)
-                            : ZERO
-                          return (
-                            <>
-                              <PCols a={p2g} gb={p2!.grossBudget} ga={p2!.grossActual} py="py-2" />
-                              <DeltaCell p1={group.subtotal.actual} p2={p2g.actual} revCtx={false} py="py-2" />
-                            </>
-                          )
-                        })()}
+                        <PCols a={subTotal} gb={p1gb} ga={p1ga} py="py-2" />
+                        {hasPeriod2 && (
+                          <>
+                            <PCols a={p2SubTotal} gb={p2!.grossBudget} ga={p2!.grossActual} py="py-2" />
+                            <DeltaCell p1={subTotal.actual} p2={p2SubTotal.actual} revCtx={false} py="py-2" />
+                          </>
+                        )}
                       </>
                     )}
                   </tr>
 
-                  {/* Line items (shown when group expanded) */}
-                  {isGroupOpen && group.lineItems.map(li => {
+                  {/* Line items */}
+                  {isGroupOpen && subItems.map(li => {
                     const p2a      = p2?.items[li.lineItemId] ?? ZERO
                     const histClick = onRowClick ? () => onRowClick!(li.lineItemId, li.name) : undefined
                     const lastA    = isMultiMonth ? (monthLookups![mmLast].lineItems.get(li.lineItemId) ?? ZERO) : ZERO
@@ -1105,7 +1141,7 @@ export default function PLTable({
               )
             })}
 
-            {/* Total COGM row — sum of ALL groups in section */}
+            {/* Total COGM row — DM + DL + MOH */}
             {(() => {
               const lastSt = isMultiMonth ? (monthLookups![mmLast].sections.get(section.id) ?? ZERO) : ZERO
               const prevSt = isMultiMonth ? (monthLookups![mmPrev].sections.get(section.id) ?? ZERO) : ZERO
@@ -1148,7 +1184,46 @@ export default function PLTable({
               )
             })()}
 
-            {/* Inventory movement = Total COGM (section, all groups) − COGS own-make */}
+            {/* Standard Cost/ml (comparison mode only) */}
+            {!isMultiMonth && (
+              <tr style={{ backgroundColor: COGM_BG, borderTop: `1px dashed ${COGM_BORDER}` }}>
+                <td className="px-3 py-1.5 text-[11px]" style={{ color: COGM_TEXT }}>
+                  <span className="font-medium">Standard Cost/ml</span>
+                  {isAdmin && (
+                    <span className="ml-3 text-[10px] text-amber-600">
+                      FG out:&nbsp;
+                      <input
+                        type="number"
+                        min={0}
+                        defaultValue={fgVolume ?? ''}
+                        onBlur={e => {
+                          const v = parseFloat(e.target.value)
+                          if (!isNaN(v) && v > 0) saveFgProduction(monthKey, v)
+                        }}
+                        onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }}
+                        placeholder="0"
+                        className="w-20 border border-amber-300 rounded px-1 py-0.5 text-xs bg-white focus:outline-none"
+                      />
+                      &nbsp;ml
+                    </span>
+                  )}
+                </td>
+                <td />
+                {/* budget std cost */}
+                <td className="px-3 py-1.5 text-[11px] text-right tabular-nums font-medium" style={{ color: COGM_TEXT }}>
+                  {fmtPerMl(fgVolume ? section.total.budget / fgVolume : null)}
+                </td>
+                <td />
+                {/* actual std cost */}
+                <td className="px-3 py-1.5 text-[11px] text-right tabular-nums font-medium" style={{ color: COGM_TEXT }}>
+                  {fmtPerMl(fgVolume ? section.total.actual / fgVolume : null)}
+                </td>
+                <td />
+                {hasPeriod2 && <><td /><td /><td /><td /><td /></>}
+              </tr>
+            )}
+
+            {/* Inventory movement = Total COGM − COGS own-make */}
             {(() => {
               if (isMultiMonth) {
                 return (
