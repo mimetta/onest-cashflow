@@ -26,9 +26,10 @@ export type PLLineItemRow = {
   name: string
   subcategoryL1: string | null
   categoryName: string
+  categoryOwnerName: string | null  // categories.owner_name
   isHrCategory: boolean
   lineItemType: 'REVENUE' | 'EXPENSE'
-  ownerName: string | null
+  ownerName: string | null          // line_items.owner_name — takes priority over categoryOwnerName
 } & Amounts
 
 export type PLGroupData = {

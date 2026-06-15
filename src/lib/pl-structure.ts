@@ -129,7 +129,7 @@ export const PL_SECTIONS: readonly PLSection[] = [
     groups: [
       {
         deptCode:     'COGS',
-        deptFullName: 'Cost of Goods Sold',
+        deptFullName: 'Finance/Admin',
         subtotalLabel: 'COGS subtotal',
       },
       {
@@ -155,12 +155,12 @@ export const PL_SECTIONS: readonly PLSection[] = [
     groups: [
       {
         deptCode:     'COGM',
-        deptFullName: 'Cost of Goods Manufactured',
+        deptFullName: 'Factory (COGM)',
         subtotalLabel: 'COGM subtotal',
       },
       {
         deptCode:     'COGM',
-        deptFullName: 'Factory Operation',
+        deptFullName: 'Factory',
         subtotalLabel: 'Factory Overhead subtotal',
       },
     ],
@@ -176,33 +176,33 @@ export const PL_SECTIONS: readonly PLSection[] = [
     groups: [
       {
         deptCode:     'MKT & SALES',
-        deptFullName: 'MARKETING & SALES',
+        deptFullName: 'Marketing & Sales',
         subtotalLabel: 'Marketing & Sales subtotal',
       },
       {
-        deptCode:     'Retail Operations',
-        deptFullName: 'Retail Operations',
-        subtotalLabel: 'Retail Operations subtotal',
+        deptCode:     'Retail',
+        deptFullName: 'Retail',
+        subtotalLabel: 'Retail subtotal',
       },
       {
         deptCode:     'R&D',
-        deptFullName: 'RESEARCH & DEVELOPMENT',
+        deptFullName: 'R&D',
         subtotalLabel: 'R&D subtotal',
       },
       {
         deptCode:     'OPS & FF',
-        deptFullName: 'OPERATIONS & FULFILLMENT',
-        subtotalLabel: 'Ops & Fulfillment subtotal',
+        deptFullName: 'Stock/Warehouse',
+        subtotalLabel: 'Stock/Warehouse subtotal',
       },
       {
         deptCode:     'G&A',
-        deptFullName: 'GENERAL & ADMINISTRATIVE',
-        subtotalLabel: 'G&A subtotal',
+        deptFullName: 'Backbone',
+        subtotalLabel: 'Backbone subtotal',
       },
     ],
   },
 
-  // ── 6. CAPEX ─────────────────────────────────────────────────────────────
+  // ── 6. CAPEX — 3 collapsible sub-groups ───────────────────────────────────
   {
     id:         'capex',
     title:      'SECTION 6 — CAPEX',
@@ -211,9 +211,19 @@ export const PL_SECTIONS: readonly PLSection[] = [
     defaultCollapsed: true,
     groups: [
       {
-        deptCode:     'Depreciation & CAPEX',
-        deptFullName: 'Depreciation & CAPEX',
-        subtotalLabel: 'CAPEX subtotal',
+        deptCode:     'CAPEX',
+        deptFullName: 'Factory Investment',
+        subtotalLabel: 'Factory Investment subtotal',
+      },
+      {
+        deptCode:     'CAPEX',
+        deptFullName: 'New Store Investment',
+        subtotalLabel: 'New Store Investment subtotal',
+      },
+      {
+        deptCode:     'CAPEX',
+        deptFullName: 'Lab Instrument Investment',
+        subtotalLabel: 'Lab Instrument Investment subtotal',
       },
     ],
   },
@@ -236,7 +246,7 @@ export const PL_CALCULATED_ROWS: readonly PLCalculatedRow[] = [
     label:         'GROSS PROFIT',
     afterSectionId: 'cost_of_goods',
     terms: [
-      { sectionTotalId: 'net_revenue', sign:  1 },  // resolves to calc row
+      { sectionTotalId: 'net_revenue', sign:  1 },
       { sectionTotalId: 'total_cogs',  sign: -1 },
     ],
   },
@@ -245,7 +255,7 @@ export const PL_CALCULATED_ROWS: readonly PLCalculatedRow[] = [
     label:         'OPERATING INCOME',
     afterSectionId: 'operating_expenses',
     terms: [
-      { sectionTotalId: 'gross_profit', sign:  1 },  // resolves to calc row
+      { sectionTotalId: 'gross_profit', sign:  1 },
       { sectionTotalId: 'total_opex',   sign: -1 },
     ],
   },
@@ -254,7 +264,7 @@ export const PL_CALCULATED_ROWS: readonly PLCalculatedRow[] = [
     label:         'NET INCOME',
     afterSectionId: 'capex',
     terms: [
-      { sectionTotalId: 'operating_income', sign:  1 },  // resolves to calc row
+      { sectionTotalId: 'operating_income', sign:  1 },
       { sectionTotalId: 'total_capex',      sign: -1 },
     ],
   },

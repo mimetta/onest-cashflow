@@ -353,7 +353,7 @@ export default function PLTable({
           <div>{li.name}</div>
           {subtitle && <div className="text-[10px] text-gray-400 mt-0.5">{subtitle}</div>}
         </td>
-        <OwnerCell value={li.ownerName} showDash />
+        <OwnerCell value={li.ownerName || li.categoryOwnerName} showDash />
         {canEdit ? (
           <>
             <InlineEditCell value={li.budget} onSave={makeSave(li, 'budget', p1Year, p1Month)} />
@@ -479,6 +479,7 @@ export default function PLTable({
         {isDeptExpanded && Array.from(catMap.entries()).map(([catName, catItems]) => {
           const catKey        = `${group.departmentId}|${catName}`
           const isCatExpanded = collapse.categories[catKey] ?? false
+          const catOwner      = catItems[0]?.categoryOwnerName ?? null
           const catTotal      = catItems.reduce((acc: Amounts, li) => addAmounts(acc, li), ZERO)
           const catP2Total    = p2
             ? catItems.reduce((acc: Amounts, li) => addAmounts(acc, p2.items[li.lineItemId] ?? ZERO), ZERO)
@@ -492,7 +493,7 @@ export default function PLTable({
                   <span className="mr-2 text-gray-400 text-[10px]">{isCatExpanded ? '▼' : '▶'}</span>
                   {catName}
                 </td>
-                <OwnerCell />
+                <OwnerCell value={catOwner} />
                 <PCols a={catTotal} gb={p1gb} ga={p1ga} />
                 {hasPeriod2 && (
                   <>
@@ -532,7 +533,7 @@ export default function PLTable({
           <div>{li.name}</div>
           {subtitle && <div className="text-[10px] text-gray-400 mt-0.5">{subtitle}</div>}
         </td>
-        <OwnerCell value={li.ownerName} showDash />
+        <OwnerCell value={li.ownerName || li.categoryOwnerName} showDash />
         {months!.map((mc, ci) => {
           const a  = monthLookups![ci].lineItems.get(li.lineItemId) ?? ZERO
           const gb = monthLookups![ci].grossBudget
@@ -687,6 +688,7 @@ export default function PLTable({
         {isDeptExpanded && Array.from(catMap.entries()).map(([catName, catItems]) => {
           const catKey        = `${group.departmentId}|${catName}`
           const isCatExpanded = collapse.categories[catKey] ?? false
+          const catOwner      = catItems[0]?.categoryOwnerName ?? null
           return (
             <Fragment key={catKey}>
               <tr className="bg-white cursor-pointer hover:bg-gray-50 transition-colors select-none"
@@ -696,7 +698,7 @@ export default function PLTable({
                   <span className="mr-2 text-gray-400 text-[10px]">{isCatExpanded ? '▼' : '▶'}</span>
                   {catName}
                 </td>
-                <OwnerCell />
+                <OwnerCell value={catOwner} />
                 {months!.map((mc, ci) => {
                   const catTotal = catItems.reduce((acc, li) => {
                     const a = monthLookups![ci].lineItems.get(li.lineItemId) ?? ZERO

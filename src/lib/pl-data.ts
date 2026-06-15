@@ -54,13 +54,14 @@ function buildPLDataFromMaps({
     const subLabel: string | null = li.subcategory_l1
       ?? (dept.code === 'OEM' && cat.name !== li.name ? cat.name : null)
     ;(deptMap[key] ??= []).push({
-      lineItemId:    li.id,
-      name:          li.name,
-      subcategoryL1: subLabel,
-      categoryName:  cat.name ?? '',
-      isHrCategory:  cat.is_hr_category ?? false,
-      lineItemType:  li.type ?? 'EXPENSE',
-      ownerName:     (li as any).owner_name ?? null,
+      lineItemId:        li.id,
+      name:              li.name,
+      subcategoryL1:     subLabel,
+      categoryName:      cat.name ?? '',
+      categoryOwnerName: cat.owner_name ?? null,
+      isHrCategory:      cat.is_hr_category ?? false,
+      lineItemType:      li.type ?? 'EXPENSE',
+      ownerName:         (li as any).owner_name ?? null,
       ...amounts(budget, actual),
     })
   }
@@ -114,7 +115,7 @@ export async function getPLData(year: number, month: number): Promise<PLData> {
   const [lineItemsRes, deptsRes, budgetsRes, expensesRes] = await Promise.all([
     supabase.from('line_items').select(`
       id, name, subcategory_l1, type, owner_name,
-      categories ( name, is_hr_category, departments ( id, code, full_name ) )
+      categories ( name, owner_name, is_hr_category, departments ( id, code, full_name ) )
     `).order('name'),
     supabase.from('departments').select('id, code, full_name, owner_name'),
     supabase.from('budget_submissions')
@@ -156,7 +157,7 @@ export async function getPLDataAggregated(
   const [lineItemsRes, deptsRes, budgetRes, expensesRes] = await Promise.all([
     supabase.from('line_items').select(`
       id, name, subcategory_l1, type, owner_name,
-      categories ( name, is_hr_category, departments ( id, code, full_name ) )
+      categories ( name, owner_name, is_hr_category, departments ( id, code, full_name ) )
     `).order('name'),
     supabase.from('departments').select('id, code, full_name, owner_name'),
     supabase.from('budget_submissions')
@@ -200,7 +201,7 @@ export async function getPLDataForMonths(
   const [lineItemsRes, deptsRes, budgetsRes, expensesRes] = await Promise.all([
     supabase.from('line_items').select(`
       id, name, subcategory_l1, type, owner_name,
-      categories ( name, is_hr_category, departments ( id, code, full_name ) )
+      categories ( name, owner_name, is_hr_category, departments ( id, code, full_name ) )
     `).order('name'),
     supabase.from('departments').select('id, code, full_name, owner_name'),
     supabase.from('budget_submissions')
