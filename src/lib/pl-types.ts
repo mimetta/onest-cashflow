@@ -25,6 +25,7 @@ export type PLLineItemRow = {
   lineItemId: string
   name: string
   subcategoryL1: string | null
+  categoryId: string
   categoryName: string
   categoryOwnerName: string | null  // categories.owner_name
   isHrCategory: boolean
@@ -48,6 +49,7 @@ export type PLSectionData = {
   totalLabel: string
   totalId: string
   note?: string
+  hideOwner?: boolean
   groups: PLGroupData[]
   total: Amounts
 }

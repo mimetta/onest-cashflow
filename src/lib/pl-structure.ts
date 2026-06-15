@@ -15,6 +15,7 @@ export type PLGroup = {
   readonly deptCode: string       // departments.code
   readonly deptFullName: string   // departments.full_name
   readonly subtotalLabel: string
+  readonly defaultOwnerName?: string | null  // shown when departments.owner_name is null
 }
 
 export type PLSection = {
@@ -25,6 +26,7 @@ export type PLSection = {
   readonly totalId: string        // used by PLCalculatedRow.terms to reference this total
   readonly note?: string
   readonly defaultCollapsed: true  // all sections start collapsed in PLTable
+  readonly hideOwner?: boolean    // suppresses editable owner cells for all rows in this section
 }
 
 export type PLCalculatedRow = {
@@ -47,6 +49,7 @@ export const PL_SECTIONS: readonly PLSection[] = [
     totalLabel: 'TOTAL GROSS SALES',
     totalId:    'total_gross_sales',
     defaultCollapsed: true,
+    hideOwner:  true,
     groups: [
       {
         deptCode:     'Revenue by Channel',
@@ -79,6 +82,7 @@ export const PL_SECTIONS: readonly PLSection[] = [
     totalId:    'total_product_revenue',
     note:       'Must reconcile with TOTAL GROSS SALES',
     defaultCollapsed: true,
+    hideOwner:  true,
     groups: [
       {
         deptCode:     'Revenue by Product Category',
@@ -133,14 +137,16 @@ export const PL_SECTIONS: readonly PLSection[] = [
         subtotalLabel: 'COGS subtotal',
       },
       {
-        deptCode:     'OEM',
-        deptFullName: 'Original Equipment Manufacturer',
+        deptCode:      'OEM',
+        deptFullName:  'Original Equipment Manufacturer',
         subtotalLabel: 'OEM subtotal',
+        defaultOwnerName: 'R&D',
       },
       {
-        deptCode:     'Merchandise',
-        deptFullName: 'Merchandise',
+        deptCode:      'Merchandise',
+        deptFullName:  'Merchandise',
         subtotalLabel: 'Merchandise subtotal',
+        defaultOwnerName: 'Marketing & Sales',
       },
     ],
   },

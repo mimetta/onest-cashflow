@@ -140,12 +140,75 @@ function PCols({ a, gb, ga, py = 'py-1.5' }: { a: Amounts; gb: number; ga: numbe
   )
 }
 
-function OwnerCell({ value, showDash, py = 'py-1.5' }: {
-  value?: string | null; showDash?: boolean; py?: string
+function OwnerCell({ value, type, id, isEditable, showDash, py = 'py-1.5', suggestions = [] }: {
+  value?: string | null
+  type?: 'department' | 'category' | 'line_item'
+  id?: string
+  isEditable?: boolean
+  showDash?: boolean
+  py?: string
+  suggestions?: string[]
 }) {
+  const canEdit = isEditable && !!type && !!id
+  const [editing, setEditing] = useState(false)
+  const [display, setDisplay] = useState(value ?? null)
+  const [flash,   setFlash]   = useState<'success' | 'error' | null>(null)
+
+  useEffect(() => { setDisplay(value ?? null) }, [value])
+
+  async function commit(raw: string) {
+    setEditing(false)
+    const newVal = raw.trim() || null
+    if (newVal === display) return
+    try {
+      const res = await fetch('/api/pl/owner', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type, id, owner_name: newVal }),
+      })
+      if (!res.ok) throw new Error('save failed')
+      setDisplay(newVal)
+      setFlash('success')
+    } catch {
+      setFlash('error')
+    }
+    setTimeout(() => setFlash(null), 600)
+  }
+
+  if (editing) {
+    const listId = `ow-${id}`
+    return (
+      <td className={`px-2 ${py}`} onClick={e => e.stopPropagation()}>
+        <datalist id={listId}>
+          {suggestions.map(s => <option key={s} value={s} />)}
+        </datalist>
+        <input
+          autoFocus
+          list={listId}
+          defaultValue={display ?? ''}
+          style={{ width: 140, fontSize: 11 }}
+          className="border border-indigo-400 rounded px-1 py-0.5 focus:outline-none bg-white"
+          onBlur={e => commit(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === 'Enter') e.currentTarget.blur()
+            if (e.key === 'Escape') setEditing(false)
+          }}
+        />
+      </td>
+    )
+  }
+
   return (
-    <td className={`px-2 ${py} text-[11px] text-gray-400 whitespace-nowrap max-w-[110px] truncate`}>
-      {value ?? (showDash ? '—' : '')}
+    <td
+      className={`px-2 ${py} text-[11px] text-gray-400 whitespace-nowrap max-w-[110px] truncate relative transition-colors ${
+        flash === 'success' ? 'bg-emerald-100' : flash === 'error' ? 'bg-red-100' : ''
+      } ${canEdit ? 'cursor-pointer group' : ''}`}
+      onClick={canEdit ? (e: React.MouseEvent) => { e.stopPropagation(); setEditing(true) } : undefined}
+    >
+      {display ?? (showDash ? '—' : '')}
+      {canEdit && (
+        <span className="absolute right-1 top-1/2 -translate-y-1/2 text-[9px] opacity-0 group-hover:opacity-40 pointer-events-none">✏</span>
+      )}
     </td>
   )
 }
@@ -276,6 +339,15 @@ export default function PLTable({
   const p2         = useMemo(() => !isMultiMonth && period2 ? buildP2Map(period2.data) : null, [isMultiMonth, period2])
   const hasPeriod2 = p2 !== null
   const canEdit    = role === 'admin' || role === 'ceo'
+  const isAdmin    = role === 'admin'
+
+  const ownerSuggestions = useMemo(() => {
+    if (!refData) return []
+    const names = new Set<string>()
+    for (const s of refData.sections)
+      for (const g of s.groups) if (g.deptFullName) names.add(g.deptFullName)
+    return [...names].sort()
+  }, [refData])
 
   const [p1gb, p1ga] = useMemo(() => {
     if (isMultiMonth) return [0, 0]
@@ -353,7 +425,9 @@ export default function PLTable({
           <div>{li.name}</div>
           {subtitle && <div className="text-[10px] text-gray-400 mt-0.5">{subtitle}</div>}
         </td>
-        <OwnerCell value={li.ownerName || li.categoryOwnerName} showDash />
+        <OwnerCell value={li.ownerName || li.categoryOwnerName} showDash
+          type="line_item" id={li.lineItemId}
+          isEditable={isAdmin && !section.hideOwner} suggestions={ownerSuggestions} />
         {canEdit ? (
           <>
             <InlineEditCell value={li.budget} onSave={makeSave(li, 'budget', p1Year, p1Month)} />
@@ -435,7 +509,9 @@ export default function PLTable({
             <span className="mr-2 text-gray-400 text-[10px]">{isExpanded ? '▼' : '▶'}</span>
             {group.deptFullName}
           </td>
-          <OwnerCell value={group.ownerName} py="py-2" />
+          <OwnerCell value={group.ownerName} py="py-2"
+            type="department" id={group.departmentId}
+            isEditable={isAdmin && !section.hideOwner} suggestions={ownerSuggestions} />
           <PCols a={group.subtotal} gb={p1gb} ga={p1ga} py="py-2" />
           {hasPeriod2 && (
             <>
@@ -467,7 +543,9 @@ export default function PLTable({
             <span className="mr-2 text-gray-400 text-[10px]">{isDeptExpanded ? '▼' : '▶'}</span>
             {group.deptFullName}
           </td>
-          <OwnerCell value={group.ownerName} py="py-2" />
+          <OwnerCell value={group.ownerName} py="py-2"
+            type="department" id={group.departmentId}
+            isEditable={isAdmin} suggestions={ownerSuggestions} />
           <PCols a={group.subtotal} gb={p1gb} ga={p1ga} py="py-2" />
           {hasPeriod2 && (
             <>
@@ -493,7 +571,9 @@ export default function PLTable({
                   <span className="mr-2 text-gray-400 text-[10px]">{isCatExpanded ? '▼' : '▶'}</span>
                   {catName}
                 </td>
-                <OwnerCell value={catOwner} />
+                <OwnerCell value={catOwner}
+                  type="category" id={catItems[0]?.categoryId}
+                  isEditable={isAdmin} suggestions={ownerSuggestions} />
                 <PCols a={catTotal} gb={p1gb} ga={p1ga} />
                 {hasPeriod2 && (
                   <>
@@ -533,7 +613,9 @@ export default function PLTable({
           <div>{li.name}</div>
           {subtitle && <div className="text-[10px] text-gray-400 mt-0.5">{subtitle}</div>}
         </td>
-        <OwnerCell value={li.ownerName || li.categoryOwnerName} showDash />
+        <OwnerCell value={li.ownerName || li.categoryOwnerName} showDash
+          type="line_item" id={li.lineItemId}
+          isEditable={isAdmin && !section.hideOwner} suggestions={ownerSuggestions} />
         {months!.map((mc, ci) => {
           const a  = monthLookups![ci].lineItems.get(li.lineItemId) ?? ZERO
           const gb = monthLookups![ci].grossBudget
@@ -631,7 +713,9 @@ export default function PLTable({
             <span className="mr-2 text-gray-400 text-[10px]">{isExpanded ? '▼' : '▶'}</span>
             {group.deptFullName}
           </td>
-          <OwnerCell value={group.ownerName} py="py-2" />
+          <OwnerCell value={group.ownerName} py="py-2"
+            type="department" id={group.departmentId}
+            isEditable={isAdmin && !section.hideOwner} suggestions={ownerSuggestions} />
           {months!.map((mc, ci) => {
             const g  = monthLookups![ci].groups.get(group.departmentId) ?? ZERO
             const gb = monthLookups![ci].grossBudget
@@ -669,7 +753,9 @@ export default function PLTable({
             <span className="mr-2 text-gray-400 text-[10px]">{isDeptExpanded ? '▼' : '▶'}</span>
             {group.deptFullName}
           </td>
-          <OwnerCell value={group.ownerName} py="py-2" />
+          <OwnerCell value={group.ownerName} py="py-2"
+            type="department" id={group.departmentId}
+            isEditable={isAdmin} suggestions={ownerSuggestions} />
           {months!.map((mc, ci) => {
             const g  = monthLookups![ci].groups.get(group.departmentId) ?? ZERO
             const gb = monthLookups![ci].grossBudget
@@ -698,7 +784,9 @@ export default function PLTable({
                   <span className="mr-2 text-gray-400 text-[10px]">{isCatExpanded ? '▼' : '▶'}</span>
                   {catName}
                 </td>
-                <OwnerCell value={catOwner} />
+                <OwnerCell value={catOwner}
+                  type="category" id={catItems[0]?.categoryId}
+                  isEditable={isAdmin} suggestions={ownerSuggestions} />
                 {months!.map((mc, ci) => {
                   const catTotal = catItems.reduce((acc, li) => {
                     const a = monthLookups![ci].lineItems.get(li.lineItemId) ?? ZERO
@@ -737,7 +825,7 @@ export default function PLTable({
 
   // ── Section 4: COGS flat row (single item, no expand arrow) ─────────────────
 
-  function renderCogsFlatRowCmp(group: PLGroupData, _section: PLSectionData) {
+  function renderCogsFlatRowCmp(group: PLGroupData, section: PLSectionData) {
     const li = group.lineItems[0]
     if (!li) return null
     const p2a = p2?.items[li.lineItemId] ?? ZERO
@@ -746,7 +834,9 @@ export default function PLTable({
         <td className="pl-4 pr-3 py-2 text-[13px] font-medium text-gray-700">
           {group.deptFullName}
         </td>
-        <OwnerCell value={group.ownerName} py="py-2" />
+        <OwnerCell value={group.ownerName} py="py-2"
+          type="department" id={group.departmentId}
+          isEditable={isAdmin && !section.hideOwner} suggestions={ownerSuggestions} />
         {canEdit ? (
           <>
             <InlineEditCell value={li.budget} py="py-2" onSave={makeSave(li, 'budget', p1Year, p1Month)} />
@@ -767,7 +857,7 @@ export default function PLTable({
     )
   }
 
-  function renderCogsFlatRowMM(group: PLGroupData, _section: PLSectionData) {
+  function renderCogsFlatRowMM(group: PLGroupData, section: PLSectionData) {
     const li = group.lineItems[0]
     if (!li) return null
     const lastLI = monthLookups![mmLast].lineItems.get(li.lineItemId) ?? ZERO
@@ -777,7 +867,9 @@ export default function PLTable({
         <td className="pl-4 pr-3 py-2 text-[13px] font-medium text-gray-700">
           {group.deptFullName}
         </td>
-        <OwnerCell value={group.ownerName} py="py-2" />
+        <OwnerCell value={group.ownerName} py="py-2"
+          type="department" id={group.departmentId}
+          isEditable={isAdmin && !section.hideOwner} suggestions={ownerSuggestions} />
         {months!.map((mc, ci) => {
           const a  = monthLookups![ci].lineItems.get(li.lineItemId) ?? ZERO
           const gb = monthLookups![ci].grossBudget
@@ -898,7 +990,9 @@ export default function PLTable({
                       </span>
                       {group.deptFullName}
                     </td>
-                    <OwnerCell value={group.ownerName} py="py-2" />
+                    <OwnerCell value={group.ownerName} py="py-2"
+                      type="department" id={group.departmentId}
+                      isEditable={isAdmin} suggestions={ownerSuggestions} />
                     {isMultiMonth ? (
                       <>
                         {months!.map((mc, ci) => {
@@ -952,7 +1046,9 @@ export default function PLTable({
                           {li.name}
                           {li.subcategoryL1 && <div className="text-[10px] opacity-70 mt-0.5">{li.subcategoryL1}</div>}
                         </td>
-                        <OwnerCell value={li.ownerName} showDash />
+                        <OwnerCell value={li.ownerName || li.categoryOwnerName} showDash
+                          type="line_item" id={li.lineItemId}
+                          isEditable={isAdmin} suggestions={ownerSuggestions} />
                         {isMultiMonth ? (
                           <>
                             {months!.map((mc, ci) => {

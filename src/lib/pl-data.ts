@@ -57,6 +57,7 @@ function buildPLDataFromMaps({
       lineItemId:        li.id,
       name:              li.name,
       subcategoryL1:     subLabel,
+      categoryId:        cat.id ?? '',
       categoryName:      cat.name ?? '',
       categoryOwnerName: cat.owner_name ?? null,
       isHrCategory:      cat.is_hr_category ?? false,
@@ -81,12 +82,12 @@ function buildPLDataFromMaps({
         subtotalLabel: group.subtotalLabel,
         lineItems,
         subtotal,
-        ownerName:    deptOwnerMap[deptId] ?? null,
+        ownerName:    deptOwnerMap[deptId] ?? group.defaultOwnerName ?? null,
       }
     })
     const total = groups.reduce((acc, g) => addAmounts(acc, g.subtotal), ZERO)
     totalsLookup[section.totalId] = total
-    return { id: section.id, title: section.title, totalLabel: section.totalLabel, totalId: section.totalId, note: section.note, groups, total }
+    return { id: section.id, title: section.title, totalLabel: section.totalLabel, totalId: section.totalId, note: section.note, hideOwner: section.hideOwner, groups, total }
   })
 
   const calculatedRows: PLCalcRowData[] = PL_CALCULATED_ROWS.map(calcRow => {
@@ -115,7 +116,7 @@ export async function getPLData(year: number, month: number): Promise<PLData> {
   const [lineItemsRes, deptsRes, budgetsRes, expensesRes] = await Promise.all([
     supabase.from('line_items').select(`
       id, name, subcategory_l1, type, owner_name,
-      categories ( name, owner_name, is_hr_category, departments ( id, code, full_name ) )
+      categories ( id, name, owner_name, is_hr_category, departments ( id, code, full_name ) )
     `).order('name'),
     supabase.from('departments').select('id, code, full_name, owner_name'),
     supabase.from('budget_submissions')
@@ -157,7 +158,7 @@ export async function getPLDataAggregated(
   const [lineItemsRes, deptsRes, budgetRes, expensesRes] = await Promise.all([
     supabase.from('line_items').select(`
       id, name, subcategory_l1, type, owner_name,
-      categories ( name, owner_name, is_hr_category, departments ( id, code, full_name ) )
+      categories ( id, name, owner_name, is_hr_category, departments ( id, code, full_name ) )
     `).order('name'),
     supabase.from('departments').select('id, code, full_name, owner_name'),
     supabase.from('budget_submissions')
@@ -201,7 +202,7 @@ export async function getPLDataForMonths(
   const [lineItemsRes, deptsRes, budgetsRes, expensesRes] = await Promise.all([
     supabase.from('line_items').select(`
       id, name, subcategory_l1, type, owner_name,
-      categories ( name, owner_name, is_hr_category, departments ( id, code, full_name ) )
+      categories ( id, name, owner_name, is_hr_category, departments ( id, code, full_name ) )
     `).order('name'),
     supabase.from('departments').select('id, code, full_name, owner_name'),
     supabase.from('budget_submissions')
