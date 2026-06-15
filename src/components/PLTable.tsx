@@ -341,13 +341,14 @@ export default function PLTable({
   const canEdit    = role === 'admin' || role === 'ceo'
   const isAdmin    = role === 'admin'
 
-  const ownerSuggestions = useMemo(() => {
-    if (!refData) return []
-    const names = new Set<string>()
-    for (const s of refData.sections)
-      for (const g of s.groups) if (g.deptFullName) names.add(g.deptFullName)
-    return [...names].sort()
-  }, [refData])
+  const [ownerOptions, setOwnerOptions] = useState<string[]>([])
+  useEffect(() => {
+    if (!isAdmin) return
+    fetch('/api/pl/owner/options')
+      .then(r => r.ok ? r.json() : [])
+      .then(setOwnerOptions)
+      .catch(() => {})
+  }, [isAdmin])
 
   const [p1gb, p1ga] = useMemo(() => {
     if (isMultiMonth) return [0, 0]
@@ -413,21 +414,20 @@ export default function PLTable({
     const p2a      = p2?.items[li.lineItemId] ?? ZERO
     const revCtx   = REV_IDS.has(section.id)
     const histClick = onRowClick ? () => onRowClick!(li.lineItemId, li.name) : undefined
-    // FIX 1: show category as subtitle when subcategoryL1 is absent but name is a duplicate in this group
-    const subtitle  = li.subcategoryL1 || (dupeNames?.has(li.name) ? li.categoryName : null)
+    const subtitle = dupeNames?.has(li.name) ? li.categoryName : li.subcategoryL1
     return (
       <tr
         key={li.lineItemId}
         className="border-b border-gray-100 hover:bg-gray-50/30"
         style={deepIndent ? { borderLeft: '2px solid #d1d5db' } : undefined}
       >
-        <td className={`${deepIndent ? 'pl-[48px]' : 'pl-10'} pr-3 py-1.5 text-xs text-gray-700`}>
-          <div>{li.name}</div>
-          {subtitle && <div className="text-[10px] text-gray-400 mt-0.5">{subtitle}</div>}
+        <td className={`${deepIndent ? 'pl-[48px]' : 'pl-10'} pr-3 py-1.5 text-gray-700`}>
+          <div className="text-[13px]">{li.name}</div>
+          {subtitle && <div className="text-[11px] text-gray-400 mt-0.5">{subtitle}</div>}
         </td>
         <OwnerCell value={li.ownerName || li.categoryOwnerName} showDash
           type="line_item" id={li.lineItemId}
-          isEditable={isAdmin && !section.hideOwner} suggestions={ownerSuggestions} />
+          isEditable={isAdmin && !section.hideOwner} suggestions={ownerOptions} />
         {canEdit ? (
           <>
             <InlineEditCell value={li.budget} onSave={makeSave(li, 'budget', p1Year, p1Month)} />
@@ -511,7 +511,7 @@ export default function PLTable({
           </td>
           <OwnerCell value={group.ownerName} py="py-2"
             type="department" id={group.departmentId}
-            isEditable={isAdmin && !section.hideOwner} suggestions={ownerSuggestions} />
+            isEditable={isAdmin && !section.hideOwner} suggestions={ownerOptions} />
           <PCols a={group.subtotal} gb={p1gb} ga={p1ga} py="py-2" />
           {hasPeriod2 && (
             <>
@@ -545,7 +545,7 @@ export default function PLTable({
           </td>
           <OwnerCell value={group.ownerName} py="py-2"
             type="department" id={group.departmentId}
-            isEditable={isAdmin} suggestions={ownerSuggestions} />
+            isEditable={isAdmin} suggestions={ownerOptions} />
           <PCols a={group.subtotal} gb={p1gb} ga={p1ga} py="py-2" />
           {hasPeriod2 && (
             <>
@@ -573,7 +573,7 @@ export default function PLTable({
                 </td>
                 <OwnerCell value={catOwner}
                   type="category" id={catItems[0]?.categoryId}
-                  isEditable={isAdmin} suggestions={ownerSuggestions} />
+                  isEditable={isAdmin} suggestions={ownerOptions} />
                 <PCols a={catTotal} gb={p1gb} ga={p1ga} />
                 {hasPeriod2 && (
                   <>
@@ -601,21 +601,20 @@ export default function PLTable({
     const revCtx    = REV_IDS.has(section.id)
     const lastA     = monthLookups![mmLast].lineItems.get(li.lineItemId) ?? ZERO
     const prevA     = monthLookups![mmPrev].lineItems.get(li.lineItemId) ?? ZERO
-    // FIX 1: show category as subtitle when subcategoryL1 is absent but name is a duplicate in this group
-    const subtitle  = li.subcategoryL1 || (dupeNames?.has(li.name) ? li.categoryName : null)
+    const subtitle = dupeNames?.has(li.name) ? li.categoryName : li.subcategoryL1
     return (
       <tr
         key={li.lineItemId}
         className="border-b border-gray-100 hover:bg-gray-50/30"
         style={deepIndent ? { borderLeft: '2px solid #d1d5db' } : undefined}
       >
-        <td className={`${deepIndent ? 'pl-[48px]' : 'pl-10'} pr-3 py-1.5 text-xs text-gray-700`}>
-          <div>{li.name}</div>
-          {subtitle && <div className="text-[10px] text-gray-400 mt-0.5">{subtitle}</div>}
+        <td className={`${deepIndent ? 'pl-[48px]' : 'pl-10'} pr-3 py-1.5 text-gray-700`}>
+          <div className="text-[13px]">{li.name}</div>
+          {subtitle && <div className="text-[11px] text-gray-400 mt-0.5">{subtitle}</div>}
         </td>
         <OwnerCell value={li.ownerName || li.categoryOwnerName} showDash
           type="line_item" id={li.lineItemId}
-          isEditable={isAdmin && !section.hideOwner} suggestions={ownerSuggestions} />
+          isEditable={isAdmin && !section.hideOwner} suggestions={ownerOptions} />
         {months!.map((mc, ci) => {
           const a  = monthLookups![ci].lineItems.get(li.lineItemId) ?? ZERO
           const gb = monthLookups![ci].grossBudget
@@ -715,7 +714,7 @@ export default function PLTable({
           </td>
           <OwnerCell value={group.ownerName} py="py-2"
             type="department" id={group.departmentId}
-            isEditable={isAdmin && !section.hideOwner} suggestions={ownerSuggestions} />
+            isEditable={isAdmin && !section.hideOwner} suggestions={ownerOptions} />
           {months!.map((mc, ci) => {
             const g  = monthLookups![ci].groups.get(group.departmentId) ?? ZERO
             const gb = monthLookups![ci].grossBudget
@@ -755,7 +754,7 @@ export default function PLTable({
           </td>
           <OwnerCell value={group.ownerName} py="py-2"
             type="department" id={group.departmentId}
-            isEditable={isAdmin} suggestions={ownerSuggestions} />
+            isEditable={isAdmin} suggestions={ownerOptions} />
           {months!.map((mc, ci) => {
             const g  = monthLookups![ci].groups.get(group.departmentId) ?? ZERO
             const gb = monthLookups![ci].grossBudget
@@ -786,7 +785,7 @@ export default function PLTable({
                 </td>
                 <OwnerCell value={catOwner}
                   type="category" id={catItems[0]?.categoryId}
-                  isEditable={isAdmin} suggestions={ownerSuggestions} />
+                  isEditable={isAdmin} suggestions={ownerOptions} />
                 {months!.map((mc, ci) => {
                   const catTotal = catItems.reduce((acc, li) => {
                     const a = monthLookups![ci].lineItems.get(li.lineItemId) ?? ZERO
@@ -836,7 +835,7 @@ export default function PLTable({
         </td>
         <OwnerCell value={group.ownerName} py="py-2"
           type="department" id={group.departmentId}
-          isEditable={isAdmin && !section.hideOwner} suggestions={ownerSuggestions} />
+          isEditable={isAdmin && !section.hideOwner} suggestions={ownerOptions} />
         {canEdit ? (
           <>
             <InlineEditCell value={li.budget} py="py-2" onSave={makeSave(li, 'budget', p1Year, p1Month)} />
@@ -869,7 +868,7 @@ export default function PLTable({
         </td>
         <OwnerCell value={group.ownerName} py="py-2"
           type="department" id={group.departmentId}
-          isEditable={isAdmin && !section.hideOwner} suggestions={ownerSuggestions} />
+          isEditable={isAdmin && !section.hideOwner} suggestions={ownerOptions} />
         {months!.map((mc, ci) => {
           const a  = monthLookups![ci].lineItems.get(li.lineItemId) ?? ZERO
           const gb = monthLookups![ci].grossBudget
@@ -992,7 +991,7 @@ export default function PLTable({
                     </td>
                     <OwnerCell value={group.ownerName} py="py-2"
                       type="department" id={group.departmentId}
-                      isEditable={isAdmin} suggestions={ownerSuggestions} />
+                      isEditable={isAdmin} suggestions={ownerOptions} />
                     {isMultiMonth ? (
                       <>
                         {months!.map((mc, ci) => {
@@ -1048,7 +1047,7 @@ export default function PLTable({
                         </td>
                         <OwnerCell value={li.ownerName || li.categoryOwnerName} showDash
                           type="line_item" id={li.lineItemId}
-                          isEditable={isAdmin} suggestions={ownerSuggestions} />
+                          isEditable={isAdmin} suggestions={ownerOptions} />
                         {isMultiMonth ? (
                           <>
                             {months!.map((mc, ci) => {

@@ -133,7 +133,7 @@ export const PL_SECTIONS: readonly PLSection[] = [
     groups: [
       {
         deptCode:     'COGS',
-        deptFullName: 'Finance/Admin',
+        deptFullName: 'Cost of Goods Sold',
         subtotalLabel: 'COGS subtotal',
       },
       {

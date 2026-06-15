@@ -347,6 +347,12 @@ export default function AdminDashboard({
         <h1 className="text-xl font-bold text-gray-900">Admin — P&amp;L</h1>
         <div className="flex items-center gap-3">
           <Link
+            href="/dashboard/admin/line-items"
+            className="px-3 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 border border-gray-200 rounded-lg hover:bg-white transition-colors"
+          >
+            Line Items
+          </Link>
+          <Link
             href="/dashboard/admin/import"
             className="px-3 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 border border-gray-200 rounded-lg hover:bg-white transition-colors"
           >
