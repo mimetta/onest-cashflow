@@ -25,7 +25,7 @@ export default async function DeptDashboardPage({
   if (user.departmentIds.length === 0) {
     return (
       <div className="min-h-screen flex flex-col bg-gray-50">
-        <NavHeader userName={user.full_name ?? user.email} role={user.role} />
+        <NavHeader userName={user.name ?? user.email} role={user.role} />
         <main className="flex-1 flex items-center justify-center">
           <div className="text-center max-w-sm">
             <p className="text-4xl mb-4">&#9888;</p>
@@ -65,7 +65,7 @@ export default async function DeptDashboardPage({
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
-      <NavHeader userName={user.full_name ?? user.email} role={user.role} />
+      <NavHeader userName={user.name ?? user.email} role={user.role} />
       <main className="flex-1">
         <DeptDashboard
           deptName={deptName}

@@ -52,7 +52,7 @@ export default async function AdminDashboardPage({
     }))
     return (
       <div className="min-h-screen flex flex-col bg-gray-50">
-        <NavHeader userName={user.full_name ?? user.email} role={user.role} />
+        <NavHeader userName={user.name ?? user.email} role={user.role} />
         <main className="flex-1">
           <AdminDashboard
             mode={mode}
@@ -81,7 +81,7 @@ export default async function AdminDashboardPage({
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
-      <NavHeader userName={user.full_name ?? user.email} role={user.role} />
+      <NavHeader userName={user.name ?? user.email} role={user.role} />
       <main className="flex-1">
         <AdminDashboard
           mode={mode}

@@ -40,27 +40,30 @@ export async function POST(req: NextRequest) {
   catch (e: any) { return NextResponse.json({ error: e.message }, { status: 500 }) }
 
   // Send invite email via Supabase Auth
-  const { data: inviteData, error: inviteError } = await db.auth.admin.inviteUserByEmail(email)
+  const { data: inviteData, error: inviteError } = await db.auth.admin.inviteUserByEmail(email, {
+    data: { role, name: email },
+  })
   if (inviteError) return NextResponse.json({ error: inviteError.message }, { status: 500 })
 
   const newUserId = inviteData.user.id
 
-  // Create profile row (upsert in case the auth trigger already created it)
+  // Insert into public users table; name defaults to email until user updates their profile
   const { error: profileError } = await db.from('users').upsert({
-    id:   newUserId,
-    email,
+    id:        newUserId,
+    name:      email,
     role,
+    is_active: true,
   }, { onConflict: 'id' })
   if (profileError) return NextResponse.json({ error: profileError.message }, { status: 500 })
 
   // Assign departments if provided
   if (Array.isArray(departmentIds) && departmentIds.length > 0) {
-    const rows = departmentIds.map(departmentId => ({ user_id: newUserId, department_id: departmentId }))
+    const rows = departmentIds.map(department_id => ({ user_id: newUserId, department_id }))
     const { error: deptError } = await db
       .from('user_departments')
       .upsert(rows, { onConflict: 'user_id,department_id' })
     if (deptError) return NextResponse.json({ error: deptError.message }, { status: 500 })
   }
 
-  return NextResponse.json({ userId: newUserId, email })
+  return NextResponse.json({ success: true, message: `Invite sent to ${email}` })
 }

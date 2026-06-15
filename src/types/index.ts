@@ -31,12 +31,13 @@ export interface LineItem {
 
 export interface User {
   id: string
-  email: string
+  email: string        // from auth.getUser() — not stored in public.users
+  name: string | null  // users.name column (was full_name)
   role: Role
   department_id: string | null
+  is_active: boolean
   /** All department UUIDs from the user_departments junction table. */
   departmentIds: string[]
-  full_name: string | null
   created_at: string
 }
 

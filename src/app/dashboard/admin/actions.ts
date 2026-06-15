@@ -90,27 +90,28 @@ export async function getLineItemHistory(lineItemId: string): Promise<HistoryRow
   const { data, error } = await supabase
     .from('budget_submissions')
     .select(`
-      id, year, month, amount, status, submitted_at, approved_at, note,
-      departments ( full_name ),
-      users ( full_name, email )
+      id, month, amount, status, submitted_at, note,
+      users ( name )
     `)
     .eq('line_item_id', lineItemId)
-    .order('year', { ascending: false })
     .order('month', { ascending: false })
-    .order('created_at', { ascending: false })
+    .order('version', { ascending: false })
 
   if (error) throw new Error(error.message)
 
-  return (data ?? []).map((r: any) => ({
-    id: r.id,
-    year: r.year,
-    month: r.month,
-    amount: Number(r.amount),
-    status: r.status,
-    departmentName: r.departments?.full_name ?? '—',
-    submittedByName: r.users?.full_name ?? r.users?.email ?? '—',
-    submittedAt: r.submitted_at,
-    approvedAt: r.approved_at,
-    note: r.note,
-  }))
+  return (data ?? []).map((r: any) => {
+    const d = r.month ? new Date(r.month) : null
+    return {
+      id:              r.id,
+      year:            d ? d.getUTCFullYear() : 0,
+      month:           d ? d.getUTCMonth() + 1 : 0,
+      amount:          Number(r.amount),
+      status:          r.status,
+      departmentName:  '—',
+      submittedByName: r.users?.name ?? '—',
+      submittedAt:     r.submitted_at,
+      approvedAt:      null,
+      note:            r.note,
+    }
+  })
 }

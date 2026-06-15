@@ -7,8 +7,9 @@ import { assignDepartment, unassignDepartment } from './actions'
 interface UserRow {
   id: string
   email: string
-  full_name: string | null
+  name: string | null
   role: string
+  is_active: boolean
 }
 
 interface DeptRow {
@@ -63,7 +64,7 @@ function InviteForm({ departments }: { departments: DeptRow[] }) {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Invite failed')
-      setStatus({ type: 'success', msg: `Invitation sent to ${data.email}.` })
+      setStatus({ type: 'success', msg: data.message ?? `Invitation sent to ${email}.` })
       setEmail(''); setSelectedDepts([])
     } catch (e: any) {
       setStatus({ type: 'error', msg: e.message })
@@ -224,7 +225,7 @@ export default function UserAssignments({ users, departments, initialAssignments
   const q = search.trim().toLowerCase()
   const filtered = q
     ? users.filter(u =>
-        (u.full_name ?? '').toLowerCase().includes(q) ||
+        (u.name ?? '').toLowerCase().includes(q) ||
         u.email.toLowerCase().includes(q) ||
         u.role.toLowerCase().includes(q)
       )
@@ -293,7 +294,7 @@ export default function UserAssignments({ users, departments, initialAssignments
                   {/* User info */}
                   <td className="px-4 py-3 align-top">
                     <div className="font-medium text-sm text-gray-900 leading-snug">
-                      {u.full_name ?? <span className="text-gray-400 italic">no name</span>}
+                      {u.name ?? <span className="text-gray-400 italic">no name</span>}
                     </div>
                     <div className="text-xs text-gray-400 mt-0.5 truncate max-w-[220px]">
                       {u.email}
@@ -326,7 +327,7 @@ export default function UserAssignments({ users, departments, initialAssignments
                             <button
                               onClick={() => handleUnassign(u.id, dept.id)}
                               disabled={removing}
-                              aria-label={`Remove ${dept.full_name} from ${u.full_name ?? u.email}`}
+                              aria-label={`Remove ${dept.full_name} from ${u.name ?? u.email}`}
                               className="ml-0.5 text-indigo-400 hover:text-indigo-700 disabled:cursor-not-allowed leading-none text-sm"
                             >
                               ×
@@ -339,7 +340,7 @@ export default function UserAssignments({ users, departments, initialAssignments
                         <select
                           value=""
                           onChange={e => handleAssign(u.id, e.target.value)}
-                          aria-label={`Add department for ${u.full_name ?? u.email}`}
+                          aria-label={`Add department for ${u.name ?? u.email}`}
                           className="text-xs rounded-md border border-dashed border-gray-300 px-2 py-1 text-gray-500 hover:border-indigo-400 hover:text-indigo-600 focus:outline-none focus:ring-1 focus:ring-indigo-400 bg-white cursor-pointer transition-colors"
                         >
                           <option value="" disabled>+ Add dept</option>

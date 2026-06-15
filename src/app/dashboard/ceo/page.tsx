@@ -60,7 +60,7 @@ export default async function CeoDashboardPage({
     .select(`
       id, month, amount, submitted_at,
       line_items ( name, type, categories ( name, departments ( full_name ) ) ),
-      users ( full_name, email )
+      users ( name )
     `)
     .eq('status', 'submitted')
     .order('submitted_at', { ascending: false })
@@ -75,7 +75,7 @@ export default async function CeoDashboardPage({
       categoryName:    row.line_items?.categories?.name                   ?? '—',
       lineItemName:    row.line_items?.name                               ?? '—',
       lineItemType:    row.line_items?.type                               ?? 'EXPENSE',
-      submittedByName: row.users?.full_name ?? row.users?.email          ?? '—',
+      submittedByName: row.users?.name ?? '—',
       year: yr,
       month: mo,
       amount:          Number(row.amount),
@@ -114,7 +114,7 @@ export default async function CeoDashboardPage({
 
     return (
       <div className="min-h-screen flex flex-col bg-gray-50">
-        <NavHeader userName={user.full_name ?? user.email} role={user.role} />
+        <NavHeader userName={user.name ?? user.email} role={user.role} />
         <main className="flex-1">
           <CeoDashboard
             mode={mode}
@@ -152,7 +152,7 @@ export default async function CeoDashboardPage({
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
-      <NavHeader userName={user.full_name ?? user.email} role={user.role} />
+      <NavHeader userName={user.name ?? user.email} role={user.role} />
       <main className="flex-1">
         <CeoDashboard
           mode={mode}

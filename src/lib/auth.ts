@@ -17,7 +17,8 @@ export async function getCurrentUser(): Promise<User | null> {
   const departmentIds = (deptsRes.data ?? []).map((r: any) => r.department_id as string)
 
   return {
-    ...(userRes.data as Omit<User, 'departmentIds'>),
+    ...(userRes.data as Omit<User, 'departmentIds' | 'email'>),
+    email: authUser.email ?? '',
     departmentIds,
   }
 }

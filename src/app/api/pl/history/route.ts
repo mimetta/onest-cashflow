@@ -46,23 +46,14 @@ export async function GET(req: NextRequest) {
   console.log('[pl/history GET] histRes.data count:', histRes.data?.length ?? 0)
   console.log('[pl/history GET] histRes.data:', JSON.stringify(histRes.data?.slice(0, 3)))
 
-  // Resolve submitter names — try 'users' first, then 'profiles' as fallback
+  // Resolve submitter names from users.name
   const userNameMap = new Map<string, string>()
   const submitterIds = [...new Set((histRes.data ?? []).map((r: any) => r.submitted_by).filter(Boolean))]
   if (submitterIds.length > 0) {
-    const usersRes = await db.from('users').select('id, full_name, email').in('id', submitterIds)
+    const usersRes = await db.from('users').select('id, name').in('id', submitterIds)
     console.log('[pl/history GET] users lookup error:', usersRes.error)
-    if (!usersRes.error && usersRes.data?.length) {
-      for (const u of usersRes.data) {
-        userNameMap.set(u.id, (u as any).full_name ?? (u as any).email ?? '—')
-      }
-    } else {
-      // Fallback: profiles table
-      const profRes = await db.from('profiles').select('id, full_name').in('id', submitterIds)
-      console.log('[pl/history GET] profiles fallback error:', profRes.error)
-      for (const p of (profRes.data ?? [])) {
-        userNameMap.set((p as any).id, (p as any).full_name ?? '—')
-      }
+    for (const u of (usersRes.data ?? [])) {
+      userNameMap.set((u as any).id, (u as any).name ?? '—')
     }
   }
 
