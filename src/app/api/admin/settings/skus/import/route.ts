@@ -23,13 +23,14 @@ type ImportRow = {
   name:             string
   volume_ml:        number
   dm_per_ml?:       number
-  effective_month?: string   // 'YYYY-MM-DD' — if present, write to standard_costs
+  effective_month?: string   // 'YYYY-MM-DD'
 }
 
 /**
  * POST /api/admin/settings/skus/import
- * Upserts skus (sku_code, name, volume_ml) and optionally upserts standard_costs (dm_per_ml).
+ * Upserts skus (sku_code, sku_name, volume_ml) and optionally upserts standard_costs (dm_per_ml).
  * sku_code is optional — auto-generated from name initials + volume if not provided.
+ * Matching priority: sku_code first → sku_name fallback.
  */
 export async function POST(req: NextRequest) {
   const user = await getCurrentUser()
@@ -43,9 +44,16 @@ export async function POST(req: NextRequest) {
   }
 
   const db = serviceClient()
-  const { data: existing } = await db.from('skus').select('id, sku_name, sku_code')
-  const nameMap = new Map<string, string>()
-  const codeMap = new Map<string, string>()
+
+  // Build lookup maps for both name and code
+  const { data: existing, error: fetchError } = await db.from('skus').select('id, sku_name, sku_code')
+  if (fetchError) {
+    console.error('SKU import: failed to fetch existing SKUs:', fetchError)
+    return NextResponse.json({ error: `DB fetch failed: ${fetchError.message}` }, { status: 500 })
+  }
+
+  const nameMap = new Map<string, string>()  // sku_name.lower → id
+  const codeMap = new Map<string, string>()  // sku_code.lower → id
   for (const s of existing ?? []) {
     nameMap.set(s.sku_name.toLowerCase(), s.id)
     if (s.sku_code) codeMap.set(s.sku_code.toLowerCase(), s.id)
@@ -55,28 +63,36 @@ export async function POST(req: NextRequest) {
   const errors: string[] = []
 
   for (const row of body.rows) {
-    const name = row.name?.trim()
+    const name     = row.name?.trim()
+    const rowCode  = row.sku_code?.trim()
     if (!name) continue
 
-    // Find existing by name (name is the reliable match key for updates)
-    let skuId = nameMap.get(name.toLowerCase())
+    // Find existing by code first, then by name
+    let skuId = (rowCode ? codeMap.get(rowCode.toLowerCase()) : undefined)
+             ?? nameMap.get(name.toLowerCase())
 
     if (skuId) {
-      // Update existing: always refresh volume_ml, update sku_code if provided and different
+      // Update existing row
       const updatePayload: Record<string, unknown> = { volume_ml: row.volume_ml }
-      if (row.sku_code?.trim()) updatePayload.sku_code = row.sku_code.trim()
+      if (rowCode) updatePayload.sku_code = rowCode
       const { error } = await db.from('skus').update(updatePayload).eq('id', skuId)
-      if (error) { errors.push(`${name}: ${error.message}`); continue }
-      if (row.sku_code?.trim()) codeMap.set(row.sku_code.trim().toLowerCase(), skuId)
+      if (error) {
+        console.error('SKU import: update failed:', { name, rowCode, volume_ml: row.volume_ml }, 'Error:', { code: error.code, message: error.message, details: error.details, hint: error.hint })
+        errors.push(`Update "${name}": [${error.code}] ${error.message}`)
+        continue
+      }
+      if (rowCode) codeMap.set(rowCode.toLowerCase(), skuId)
       updated++
     } else {
       // Insert new — use provided sku_code or auto-generate
-      const baseCode = row.sku_code?.trim() || autoSkuCode(name, row.volume_ml)
+      const baseCode = rowCode || autoSkuCode(name, row.volume_ml)
       let code = baseCode; let attempt = 0
+      let inserted = false
       while (true) {
+        const insertData = { sku_code: code, sku_name: name, uom: 'ml', volume_ml: row.volume_ml }
         const { data, error } = await db
           .from('skus')
-          .insert({ sku_code: code, sku_name: name, uom: 'ml', volume_ml: row.volume_ml })
+          .insert(insertData)
           .select('id')
           .single()
         if (!error && data) {
@@ -84,27 +100,39 @@ export async function POST(req: NextRequest) {
           nameMap.set(name.toLowerCase(), data.id)
           codeMap.set(code.toLowerCase(), data.id)
           imported++
+          inserted = true
           break
         }
-        if (error?.code === '23505' && error.message.includes('sku_code')) {
+        console.error('SKU import: insert failed:', insertData, 'Error:', { code: error?.code, message: error?.message, details: (error as any)?.details, hint: (error as any)?.hint })
+        // Only retry on sku_code unique violation — any other error fails the row
+        if (error?.code === '23505' && (error.message.includes('sku_code') || error.message.includes('skus_sku_code'))) {
           attempt++; code = `${baseCode.slice(0, 47)}-${attempt}`
         } else {
-          errors.push(`${name}: ${error?.message ?? 'insert failed'}`); break
+          errors.push(`Insert "${name}": [${error?.code ?? '?'}] ${error?.message ?? 'unknown error'}`)
+          break
         }
       }
+      if (!inserted) continue
     }
 
-    // If dm_per_ml and effective_month provided, upsert standard_costs
+    // Upsert standard_costs if dm_per_ml + effective_month provided
     if (skuId && row.dm_per_ml !== undefined && row.effective_month) {
+      const scData = { sku_id: skuId, effective_month: row.effective_month, dm_per_ml: row.dm_per_ml, updated_at: new Date().toISOString() }
       const { error } = await db
         .from('standard_costs')
-        .upsert(
-          { sku_id: skuId, effective_month: row.effective_month, dm_per_ml: row.dm_per_ml, updated_at: new Date().toISOString() },
-          { onConflict: 'sku_id,effective_month' },
-        )
-      if (error) errors.push(`DM for ${name}: ${error.message}`)
+        .upsert(scData, { onConflict: 'sku_id,effective_month' })
+      if (error) {
+        console.error('SKU import: standard_costs upsert failed:', scData, 'Error:', { code: error.code, message: error.message })
+        errors.push(`DM cost for "${name}": [${error.code}] ${error.message}`)
+      }
     }
   }
 
-  return NextResponse.json({ imported, updated, errors })
+  return NextResponse.json({
+    imported,
+    updated,
+    errors,
+    // Surface first 5 errors directly so the UI can display them
+    errorSample: errors.slice(0, 5),
+  })
 }

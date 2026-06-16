@@ -116,9 +116,17 @@ export default function SkusPage() {
     })
     if (res.ok) {
       const j = await res.json()
-      setImportResult(`Created ${j.imported}, updated ${j.updated}${j.errors?.length ? ` · ${j.errors.length} error(s)` : ''}`)
-      setPreview(null); await load()
-    } else { setImportResult('Import failed') }
+      let msg = `Created ${j.imported}, updated ${j.updated}`
+      if (j.errors?.length) {
+        msg += ` · ${j.errors.length} error(s)`
+        if (j.errorSample?.length) msg += `:\n${(j.errorSample as string[]).join('\n')}`
+      }
+      setImportResult(msg)
+      if (j.imported > 0 || j.updated > 0) { setPreview(null); await load() }
+    } else {
+      const j = await res.json().catch(() => null)
+      setImportResult(`Import failed${j?.error ? `: ${j.error}` : ''}`)
+    }
     setImporting(false)
   }
 
@@ -240,7 +248,11 @@ export default function SkusPage() {
       )}
 
       {importResult && (
-        <div className="px-4 py-3 rounded-lg bg-emerald-50 border border-emerald-200 text-sm text-emerald-700">
+        <div className={`px-4 py-3 rounded-lg border text-sm whitespace-pre-wrap ${
+          importResult.includes('error') || importResult.includes('failed')
+            ? 'bg-red-50 border-red-200 text-red-700'
+            : 'bg-emerald-50 border-emerald-200 text-emerald-700'
+        }`}>
           {importResult}
         </div>
       )}
