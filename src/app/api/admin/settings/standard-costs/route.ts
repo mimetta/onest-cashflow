@@ -16,7 +16,7 @@ export async function GET() {
     const db = serviceClient()
     const { data, error } = await db
       .from('standard_costs')
-      .select('id, sku_id, effective_month, dm_per_ml, updated_at, skus(name, sku_code)')
+      .select('id, sku_id, effective_month, dm_per_ml, imported_at, skus(name, sku_code)')
       .order('effective_month', { ascending: false })
     if (error) return NextResponse.json([], { status: 200 })
     return NextResponse.json(
@@ -27,7 +27,7 @@ export async function GET() {
         sku_code:        r.skus?.sku_code ?? '',
         effective_month: r.effective_month,
         dm_per_ml:       Number(r.dm_per_ml),
-        updated_at:      r.updated_at,
+        imported_at:     r.imported_at,
       }))
     )
   } catch {

@@ -110,7 +110,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (skuId && row.dm_per_ml !== undefined && row.effective_month) {
-      const scData = { sku_id: skuId, effective_month: row.effective_month, dm_per_ml: row.dm_per_ml, updated_at: new Date().toISOString() }
+      const scData = { sku_id: skuId, effective_month: row.effective_month, dm_per_ml: row.dm_per_ml, imported_by: user.id }
       const { error } = await db
         .from('standard_costs')
         .upsert(scData, { onConflict: 'sku_id,effective_month' })

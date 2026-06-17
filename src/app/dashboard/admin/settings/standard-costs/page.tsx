@@ -5,7 +5,7 @@ import { fmtPerMl } from '@/lib/cogs-calculator'
 type Sku = { id: string; sku_name: string; sku_code: string; is_active: boolean }
 type StdCostRow = {
   id: string; sku_id: string; sku_name: string; sku_code: string
-  effective_month: string; dm_per_ml: number; updated_at: string
+  effective_month: string; dm_per_ml: number; imported_at: string
 }
 type ScPreviewRow = {
   sku_code?: string; sku_name: string; effective_month: string; dm_per_ml: number

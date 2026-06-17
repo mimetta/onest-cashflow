@@ -70,7 +70,7 @@ export async function POST(req: NextRequest) {
           sku_id:          skuId,
           effective_month: row.effective_month,
           dm_per_ml:       row.dm_per_ml ?? 0,
-          updated_at:      new Date().toISOString(),
+          imported_by:     user.id,
         },
         { onConflict: 'sku_id,effective_month' },
       )
