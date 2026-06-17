@@ -21,6 +21,7 @@ type ImportRow = {
  * POST /api/admin/settings/standard-costs/import
  * Upserts DM/ml per SKU per effective month.
  * Matches by sku_code first; falls back to sku_name.
+ * Note: skus DB column is `name` (not `sku_name`).
  */
 export async function POST(req: NextRequest) {
   const user = await getCurrentUser()
@@ -34,11 +35,12 @@ export async function POST(req: NextRequest) {
   }
 
   const db = serviceClient()
-  const { data: skus } = await db.from('skus').select('id, sku_name, sku_code')
+  // DB column is `name`, not `sku_name`
+  const { data: skus } = await db.from('skus').select('id, name, sku_code')
   const skuNameMap = new Map<string, string>()
   const skuCodeMap = new Map<string, string>()
   for (const s of skus ?? []) {
-    skuNameMap.set(s.sku_name.toLowerCase(), s.id)
+    skuNameMap.set(s.name.toLowerCase(), s.id)
     if (s.sku_code) skuCodeMap.set(s.sku_code.toLowerCase(), s.id)
   }
 
@@ -50,7 +52,7 @@ export async function POST(req: NextRequest) {
     const name = row.sku_name?.trim()
     if (!code && !name) continue
 
-    // Try sku_code first, then fall back to sku_name
+    // Try sku_code first, fall back to sku_name
     const skuId = (code && skuCodeMap.get(code.toLowerCase()))
                || (name && skuNameMap.get(name.toLowerCase()))
                || undefined

@@ -13,10 +13,10 @@ function serviceClient() {
 
 /**
  * GET /api/admin/settings/cogs?month=YYYY-MM-DD
- * Calculates:
- *   DL/ml  = DL actuals (cogm_group=DL)  ÷ total FG volume
- *   MOH/ml = MOH actuals (cogm_group=MOH) ÷ total FG volume
- *   Per-SKU COGS = units_sold × volume_ml × (dm + dl + moh per ml)
+ * DL/ml  = DL actuals (cogm_group=DL)  ÷ total FG volume
+ * MOH/ml = MOH actuals (cogm_group=MOH) ÷ total FG volume
+ * Per-SKU COGS = units_sold × volume_ml × (dm + dl + moh per ml)
+ * Note: skus DB column is `name`, exposed as `sku_name` in response.
  */
 export async function GET(req: NextRequest) {
   const month = req.nextUrl.searchParams.get('month')
@@ -26,28 +26,19 @@ export async function GET(req: NextRequest) {
     const db = serviceClient()
 
     const [fgRes, liRes, skuRes, scRes, suRes] = await Promise.all([
-      // 1. FG production volume
       db.from('fg_production').select('total_volume_ml').eq('month', month).maybeSingle(),
-
-      // 2. All line items with cogm_group (to identify DL / MOH items)
       db.from('line_items').select('id, categories(cogm_group)'),
-
-      // 3. Active SKUs
-      db.from('skus').select('id, sku_name, sku_code, volume_ml').eq('is_active', true),
-
-      // 4. All standard_costs for effective_month <= this month (DM only)
+      // DB column is `name`, not `sku_name`
+      db.from('skus').select('id, name, sku_code, volume_ml').eq('is_active', true),
       db.from('standard_costs')
         .select('sku_id, effective_month, dm_per_ml')
         .lte('effective_month', month)
         .order('effective_month', { ascending: false }),
-
-      // 5. Sales units for this month
       db.from('sales_units').select('sku_id, units_sold').eq('month', month),
     ])
 
     const totalVolumeMl = fgRes.data?.total_volume_ml ? Number(fgRes.data.total_volume_ml) : 0
 
-    // Build DL / MOH line-item sets
     const dlIds  = new Set<string>()
     const mohIds = new Set<string>()
     for (const li of liRes.data ?? []) {
@@ -57,7 +48,6 @@ export async function GET(req: NextRequest) {
     }
     const cogmIds = [...dlIds, ...mohIds]
 
-    // Fetch COGM actuals for DL + MOH line items
     let dlActual = 0, mohActual = 0
     if (cogmIds.length > 0) {
       const { data: expenses } = await db
@@ -75,17 +65,14 @@ export async function GET(req: NextRequest) {
     const dlPerMl  = totalVolumeMl > 0 ? dlActual  / totalVolumeMl : 0
     const mohPerMl = totalVolumeMl > 0 ? mohActual / totalVolumeMl : 0
 
-    // Latest DM/ml per SKU (effective_month <= month; already sorted desc)
     const dmMap = new Map<string, number>()
     for (const c of scRes.data ?? []) {
       if (!dmMap.has(c.sku_id)) dmMap.set(c.sku_id, Number(c.dm_per_ml))
     }
 
-    // Units sold per SKU
     const unitsMap = new Map<string, number>()
     for (const s of suRes.data ?? []) unitsMap.set(s.sku_id, Number(s.units_sold))
 
-    // Per-SKU COGS
     const skuRows = (skuRes.data ?? []).map(sku => {
       const dmPerMl    = dmMap.get(sku.id) ?? 0
       const volMl      = Number(sku.volume_ml) || 0
@@ -93,7 +80,7 @@ export async function GET(req: NextRequest) {
       const totalPerMl = dmPerMl + dlPerMl + mohPerMl
       return {
         sku_id:       sku.id,
-        sku_name:     sku.sku_name,
+        sku_name:     sku.name,      // DB column `name` → API field `sku_name`
         sku_code:     sku.sku_code,
         volume_ml:    volMl,
         dm_per_ml:    dmPerMl,
@@ -133,9 +120,7 @@ export async function POST(req: NextRequest) {
   }
 
   const { month, line_item_id, total_cogs } = await req.json() as {
-    month: string
-    line_item_id: string
-    total_cogs: number
+    month: string; line_item_id: string; total_cogs: number
   }
   if (!month || !line_item_id || total_cogs === undefined) {
     return NextResponse.json({ error: 'month, line_item_id, total_cogs required' }, { status: 400 })

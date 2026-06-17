@@ -213,14 +213,18 @@ function OwnerCell({ value, type, id, isEditable, showDash, py = 'py-1.5', sugge
   )
 }
 
-// ── Inline-editable cell ──────────────────────────────────────────────────────
+// ── Inline-editable cell (optimistic) ────────────────────────────────────────
+// Updates displayVal immediately on blur/Enter, saves in background.
+// On server error: reverts displayVal and shows red flash.
 
 function InlineEditCell({
-  value, py = 'py-1.5', onSave,
+  value, py = 'py-1.5', onSave, onOptimisticChange, onRevert,
 }: {
   value: number
   py?: string
   onSave: (v: number) => Promise<void>
+  onOptimisticChange?: (v: number) => void
+  onRevert?: () => void
 }) {
   const [editing,    setEditing]    = useState(false)
   const [displayVal, setDisplayVal] = useState(value)
@@ -232,17 +236,20 @@ function InlineEditCell({
     const v = parseFloat(raw)
     setEditing(false)
     if (isNaN(v) || v === displayVal) return
-    console.log('[PLTable] saving inline edit', { raw, parsed: v, prev: displayVal })
+    const prevVal = displayVal
+    // Optimistic: update UI immediately, then save in background
+    setDisplayVal(v)
+    onOptimisticChange?.(v)
     try {
       await onSave(v)
-      setDisplayVal(v)
       setFlash('success')
-      console.log('[PLTable] save ok')
-    } catch (e) {
-      console.error('[PLTable] save failed', e)
+    } catch {
+      // Revert on failure
+      setDisplayVal(prevVal)
+      onRevert?.()
       setFlash('error')
     }
-    setTimeout(() => setFlash(null), 300)
+    setTimeout(() => setFlash(null), 600)
   }
 
   if (editing) {
@@ -268,7 +275,7 @@ function InlineEditCell({
       className={`${num} px-3 ${py} text-xs cursor-pointer group relative transition-colors ${
         flash === 'success' ? 'bg-emerald-100' : flash === 'error' ? 'bg-red-100' : ''
       }`}
-      onClick={e => { e.stopPropagation(); console.log('[PLTable] cell clicked, entering edit mode'); setEditing(true) }}
+      onClick={e => { e.stopPropagation(); setEditing(true) }}
     >
       <span className={displayVal === 0 ? 'text-gray-300' : ''}>{thb(displayVal)}</span>
       <span className="absolute right-1 top-1/2 -translate-y-1/2 text-[9px] text-gray-400 opacity-0 group-hover:opacity-40 pointer-events-none">✏</span>
@@ -390,13 +397,94 @@ export default function PLTable({
   const mmLast = Math.max(0, mmN - 1)
   const mmPrev = Math.max(0, mmN - 2)
 
-  // UUID of the COGS own-make department — used for inventory movement calculation in COGM schedule
   const cogsDeptId = useMemo(() => {
     return refData?.sections
       .find(s => s.id === 'cost_of_goods')
       ?.groups.find(g => g.deptCode === 'COGS')
       ?.departmentId ?? ''
   }, [refData])
+
+  // ── Optimistic overrides ────────────────────────────────────────────────────
+  // Key: `${lineItemId}:${year}:${month}:${field}` → value
+  // Updated immediately on cell commit; cleared on revert.
+
+  const [overrides, setOverrides] = useState<Map<string, number>>(new Map)
+
+  function mkKey(liId: string, y: number, m: number, f: 'budget' | 'actual') {
+    return `${liId}:${y}:${m}:${f}`
+  }
+
+  function eff(liId: string, y: number, m: number, f: 'budget' | 'actual', fallback: number): number {
+    return overrides.get(mkKey(liId, y, m, f)) ?? fallback
+  }
+
+  function setOv(liId: string, y: number, m: number, f: 'budget' | 'actual', v: number) {
+    setOverrides(prev => { const n = new Map(prev); n.set(mkKey(liId, y, m, f), v); return n })
+  }
+
+  function delOv(liId: string, y: number, m: number, f: 'budget' | 'actual') {
+    setOverrides(prev => { const n = new Map(prev); n.delete(mkKey(liId, y, m, f)); return n })
+  }
+
+  // Effective Amounts for a line item in comparison mode (period1 year/month)
+  function effLICmp(li: PLLineItemRow): Amounts {
+    const b = eff(li.lineItemId, p1Year, p1Month, 'budget', li.budget)
+    const a = eff(li.lineItemId, p1Year, p1Month, 'actual',  li.actual)
+    return { budget: b, actual: a, variance: b - a }
+  }
+
+  // Effective Amounts for a line item in multi-month column ci
+  function effLIMM(liId: string, ci: number): Amounts {
+    const mc   = months![ci]
+    const base = monthLookups![ci].lineItems.get(liId) ?? ZERO
+    const b    = eff(liId, mc.year, mc.month, 'budget', base.budget)
+    const a    = eff(liId, mc.year, mc.month, 'actual',  base.actual)
+    return { budget: b, actual: a, variance: b - a }
+  }
+
+  // Group total (comparison mode) — recomputed from line items with overrides
+  function effGroupCmp(group: PLGroupData): Amounts {
+    return group.lineItems.reduce((acc, li) => addAmounts(acc, effLICmp(li)), ZERO)
+  }
+
+  // Group total (multi-month mode column ci)
+  function effGroupMM(group: PLGroupData, ci: number): Amounts {
+    return group.lineItems.reduce((acc, li) => addAmounts(acc, effLIMM(li.lineItemId, ci)), ZERO)
+  }
+
+  // Section total (comparison mode)
+  function effSectionCmp(section: PLSectionData): Amounts {
+    return section.groups.reduce((acc, g) => addAmounts(acc, effGroupCmp(g)), ZERO)
+  }
+
+  // Section total (multi-month mode column ci)
+  function effSectionMM(section: PLSectionData, ci: number): Amounts {
+    return section.groups.reduce((acc, g) => addAmounts(acc, effGroupMM(g, ci)), ZERO)
+  }
+
+  // ── Factory functions ───────────────────────────────────────────────────────
+
+  function makeSave(li: PLLineItemRow, field: 'budget' | 'actual', colYear: number, colMonth: number) {
+    return async (v: number) => {
+      const r = await fetch('/api/pl/update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ line_item_id: li.lineItemId, year: colYear, month: colMonth, field, value: v }),
+      })
+      if (!r.ok) {
+        const d = await r.json()
+        throw new Error(d.error ?? 'Save failed')
+      }
+    }
+  }
+
+  function makeOptimistic(liId: string, field: 'budget' | 'actual', y: number, m: number) {
+    return (v: number) => setOv(liId, y, m, field, v)
+  }
+
+  function makeRevert(liId: string, field: 'budget' | 'actual', y: number, m: number) {
+    return () => delOv(liId, y, m, field)
+  }
 
   function toggleSection(id: string) {
     setCollapse(prev => ({ ...prev, sections: { ...prev.sections, [id]: !(prev.sections[id] ?? false) } }))
@@ -408,31 +496,13 @@ export default function PLTable({
     setCollapse(prev => ({ ...prev, categories: { ...prev.categories, [key]: !(prev.categories[key] ?? false) } }))
   }
 
-  // FIX 2: each cell knows its own month context
-  function makeSave(li: PLLineItemRow, field: 'budget' | 'actual', colYear: number, colMonth: number) {
-    return async (v: number) => {
-      console.log('[PLTable] saving inline edit', { lineItemId: li.lineItemId, field, colYear, colMonth, v })
-      const r = await fetch('/api/pl/update', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ line_item_id: li.lineItemId, year: colYear, month: colMonth, field, value: v }),
-      })
-      if (!r.ok) {
-        const d = await r.json()
-        console.error('[PLTable] save failed', d)
-        throw new Error(d.error ?? 'Save failed')
-      }
-      console.log('[PLTable] save ok')
-    }
-  }
-
   // ── Comparison-mode renderers ──────────────────────────────────────────────
 
-  // FIX 1: no row-level onClick; %Rev cells open history drawer
   function renderLineItemCmp(
     li: PLLineItemRow, group: PLGroupData, section: PLSectionData, deepIndent: boolean,
     dupeNames?: Set<string>,
   ) {
+    const lia      = effLICmp(li)
     const p2a      = p2?.items[li.lineItemId] ?? ZERO
     const revCtx   = REV_IDS.has(section.id)
     const histClick = onRowClick ? () => onRowClick!(li.lineItemId, li.name) : undefined
@@ -452,10 +522,16 @@ export default function PLTable({
           isEditable={isAdmin && !section.hideOwner} suggestions={ownerOptions} />
         {canEdit ? (
           <>
-            <InlineEditCell value={li.budget} onSave={makeSave(li, 'budget', p1Year, p1Month)} />
-            <PctCell v={li.budget} base={p1gb} onClick={histClick} />
-            <InlineEditCell value={li.actual} onSave={makeSave(li, 'actual', p1Year, p1Month)} />
-            <PctCell v={li.actual} base={p1ga} onClick={histClick} />
+            <InlineEditCell value={li.budget}
+              onSave={makeSave(li, 'budget', p1Year, p1Month)}
+              onOptimisticChange={makeOptimistic(li.lineItemId, 'budget', p1Year, p1Month)}
+              onRevert={makeRevert(li.lineItemId, 'budget', p1Year, p1Month)} />
+            <PctCell v={lia.budget} base={p1gb} onClick={histClick} />
+            <InlineEditCell value={li.actual}
+              onSave={makeSave(li, 'actual', p1Year, p1Month)}
+              onOptimisticChange={makeOptimistic(li.lineItemId, 'actual', p1Year, p1Month)}
+              onRevert={makeRevert(li.lineItemId, 'actual', p1Year, p1Month)} />
+            <PctCell v={lia.actual} base={p1ga} onClick={histClick} />
           </>
         ) : (
           <>
@@ -468,7 +544,7 @@ export default function PLTable({
         {hasPeriod2 && (
           <>
             <PCols a={p2a} gb={p2!.grossBudget} ga={p2!.grossActual} />
-            <DeltaCell p1={li.actual} p2={p2a.actual} revCtx={revCtx} />
+            <DeltaCell p1={lia.actual} p2={p2a.actual} revCtx={revCtx} />
           </>
         )}
       </tr>
@@ -476,6 +552,7 @@ export default function PLTable({
   }
 
   function renderSectionTotalCmp(section: PLSectionData) {
+    const eff    = effSectionCmp(section)
     const p2a    = p2?.sectionTotals[section.id] ?? ZERO
     const revCtx = REV_IDS.has(section.id)
     return (
@@ -485,11 +562,11 @@ export default function PLTable({
           {section.note && <span className="ml-2 font-normal text-gray-400 normal-case">({section.note})</span>}
         </td>
         <OwnerCell py="py-2" />
-        <PCols a={section.total} gb={p1gb} ga={p1ga} py="py-2" />
+        <PCols a={eff} gb={p1gb} ga={p1ga} py="py-2" />
         {hasPeriod2 && (
           <>
             <PCols a={p2a} gb={p2!.grossBudget} ga={p2!.grossActual} py="py-2" />
-            <DeltaCell p1={section.total.actual} p2={p2a.actual} revCtx={revCtx} py="py-2" />
+            <DeltaCell p1={eff.actual} p2={p2a.actual} revCtx={revCtx} py="py-2" />
           </>
         )}
       </tr>
@@ -515,11 +592,11 @@ export default function PLTable({
 
   function renderStdGroupCmp(group: PLGroupData, section: PLSectionData) {
     const isExpanded = collapse.depts[group.departmentId] ?? false
+    const gsub   = effGroupCmp(group)
     const p2gsub = p2
       ? group.lineItems.reduce((acc: Amounts, li) => addAmounts(acc, p2.items[li.lineItemId] ?? ZERO), ZERO)
       : ZERO
     const revCtx = REV_IDS.has(section.id)
-    // FIX 1: detect duplicate item names within this group (e.g. OEM "Raw Materials" × 2)
     const nameCounts = new Map<string, number>()
     for (const li of group.lineItems) nameCounts.set(li.name, (nameCounts.get(li.name) ?? 0) + 1)
     const dupeNames = new Set([...nameCounts.entries()].filter(([, n]) => n > 1).map(([name]) => name))
@@ -534,11 +611,11 @@ export default function PLTable({
           <OwnerCell value={group.ownerName} py="py-2"
             type="department" id={group.departmentId}
             isEditable={isAdmin && !section.hideOwner} suggestions={ownerOptions} />
-          <PCols a={group.subtotal} gb={p1gb} ga={p1ga} py="py-2" />
+          <PCols a={gsub} gb={p1gb} ga={p1ga} py="py-2" />
           {hasPeriod2 && (
             <>
               <PCols a={p2gsub} gb={p2!.grossBudget} ga={p2!.grossActual} py="py-2" />
-              <DeltaCell p1={group.subtotal.actual} p2={p2gsub.actual} revCtx={revCtx} py="py-2" />
+              <DeltaCell p1={gsub.actual} p2={p2gsub.actual} revCtx={revCtx} py="py-2" />
             </>
           )}
         </tr>
@@ -549,6 +626,7 @@ export default function PLTable({
 
   function renderOpexGroupCmp(group: PLGroupData, section: PLSectionData) {
     const isDeptExpanded = collapse.depts[group.departmentId] ?? false
+    const gsub   = effGroupCmp(group)
     const p2gsub = p2
       ? group.lineItems.reduce((acc: Amounts, li) => addAmounts(acc, p2.items[li.lineItemId] ?? ZERO), ZERO)
       : ZERO
@@ -568,11 +646,11 @@ export default function PLTable({
           <OwnerCell value={group.ownerName} py="py-2"
             type="department" id={group.departmentId}
             isEditable={isAdmin} suggestions={ownerOptions} />
-          <PCols a={group.subtotal} gb={p1gb} ga={p1ga} py="py-2" />
+          <PCols a={gsub} gb={p1gb} ga={p1ga} py="py-2" />
           {hasPeriod2 && (
             <>
               <PCols a={p2gsub} gb={p2!.grossBudget} ga={p2!.grossActual} py="py-2" />
-              <DeltaCell p1={group.subtotal.actual} p2={p2gsub.actual} revCtx={false} py="py-2" />
+              <DeltaCell p1={gsub.actual} p2={p2gsub.actual} revCtx={false} py="py-2" />
             </>
           )}
         </tr>
@@ -580,8 +658,9 @@ export default function PLTable({
           const catKey        = `${group.departmentId}|${catName}`
           const isCatExpanded = collapse.categories[catKey] ?? false
           const catOwner      = catItems[0]?.categoryOwnerName ?? null
-          const catTotal      = catItems.reduce((acc: Amounts, li) => addAmounts(acc, li), ZERO)
-          const catP2Total    = p2
+          // Use effective values for category total
+          const catTotal   = catItems.reduce((acc: Amounts, li) => addAmounts(acc, effLICmp(li)), ZERO)
+          const catP2Total = p2
             ? catItems.reduce((acc: Amounts, li) => addAmounts(acc, p2.items[li.lineItemId] ?? ZERO), ZERO)
             : ZERO
           return (
@@ -614,16 +693,15 @@ export default function PLTable({
 
   // ── Multi-month renderers ─────────────────────────────────────────────────
 
-  // FIX 1 + FIX 2 + FIX 5: multi-month line item row
   function renderLineItemMM(
     li: PLLineItemRow, group: PLGroupData, section: PLSectionData, deepIndent: boolean,
     dupeNames?: Set<string>,
   ) {
     const histClick = onRowClick ? () => onRowClick!(li.lineItemId, li.name) : undefined
     const revCtx    = REV_IDS.has(section.id)
-    const lastA     = monthLookups![mmLast].lineItems.get(li.lineItemId) ?? ZERO
-    const prevA     = monthLookups![mmPrev].lineItems.get(li.lineItemId) ?? ZERO
-    const subtitle = dupeNames?.has(li.name) ? li.categoryName : li.subcategoryL1
+    const lastA     = effLIMM(li.lineItemId, mmLast)
+    const prevA     = effLIMM(li.lineItemId, mmPrev)
+    const subtitle  = dupeNames?.has(li.name) ? li.categoryName : li.subcategoryL1
     return (
       <tr
         key={li.lineItemId}
@@ -638,19 +716,25 @@ export default function PLTable({
           type="line_item" id={li.lineItemId}
           isEditable={isAdmin && !section.hideOwner} suggestions={ownerOptions} />
         {months!.map((mc, ci) => {
-          const a  = monthLookups![ci].lineItems.get(li.lineItemId) ?? ZERO
+          const a  = effLIMM(li.lineItemId, ci)
           const gb = monthLookups![ci].grossBudget
           const ga = monthLookups![ci].grossActual
           return (
             <Fragment key={`${mc.year}-${mc.month}`}>
               {canEdit ? (
-                <InlineEditCell value={a.budget} onSave={makeSave(li, 'budget', mc.year, mc.month)} />
+                <InlineEditCell value={a.budget}
+                  onSave={makeSave(li, 'budget', mc.year, mc.month)}
+                  onOptimisticChange={makeOptimistic(li.lineItemId, 'budget', mc.year, mc.month)}
+                  onRevert={makeRevert(li.lineItemId, 'budget', mc.year, mc.month)} />
               ) : (
                 <AmtCell n={a.budget} />
               )}
               <PctCell v={a.budget} base={gb} onClick={histClick} />
               {canEdit ? (
-                <InlineEditCell value={a.actual} onSave={makeSave(li, 'actual', mc.year, mc.month)} />
+                <InlineEditCell value={a.actual}
+                  onSave={makeSave(li, 'actual', mc.year, mc.month)}
+                  onOptimisticChange={makeOptimistic(li.lineItemId, 'actual', mc.year, mc.month)}
+                  onRevert={makeRevert(li.lineItemId, 'actual', mc.year, mc.month)} />
               ) : (
                 <AmtCell n={a.actual} />
               )}
@@ -665,8 +749,8 @@ export default function PLTable({
 
   function renderSectionTotalMM(section: PLSectionData) {
     const revCtx = REV_IDS.has(section.id)
-    const lastSt = monthLookups![mmLast].sections.get(section.id) ?? ZERO
-    const prevSt = monthLookups![mmPrev].sections.get(section.id) ?? ZERO
+    const lastSt = effSectionMM(section, mmLast)
+    const prevSt = effSectionMM(section, mmPrev)
     return (
       <tr className="border-b-2 border-gray-300 bg-gray-200">
         <td className="px-3 py-2 text-xs font-bold text-gray-800 uppercase tracking-wide">
@@ -675,7 +759,7 @@ export default function PLTable({
         </td>
         <OwnerCell py="py-2" />
         {months!.map((mc, ci) => {
-          const st = monthLookups![ci].sections.get(section.id) ?? ZERO
+          const st = effSectionMM(section, ci)
           const gb = monthLookups![ci].grossBudget
           const ga = monthLookups![ci].grossActual
           return (
@@ -720,9 +804,8 @@ export default function PLTable({
   function renderStdGroupMM(group: PLGroupData, section: PLSectionData) {
     const isExpanded = collapse.depts[group.departmentId] ?? false
     const revCtx     = REV_IDS.has(section.id)
-    const lastG      = monthLookups![mmLast].groups.get(group.departmentId) ?? ZERO
-    const prevG      = monthLookups![mmPrev].groups.get(group.departmentId) ?? ZERO
-    // FIX 1: detect duplicate item names within this group (e.g. OEM "Raw Materials" × 2)
+    const lastG      = effGroupMM(group, mmLast)
+    const prevG      = effGroupMM(group, mmPrev)
     const nameCounts = new Map<string, number>()
     for (const li of group.lineItems) nameCounts.set(li.name, (nameCounts.get(li.name) ?? 0) + 1)
     const dupeNames = new Set([...nameCounts.entries()].filter(([, n]) => n > 1).map(([name]) => name))
@@ -738,7 +821,7 @@ export default function PLTable({
             type="department" id={group.departmentId}
             isEditable={isAdmin && !section.hideOwner} suggestions={ownerOptions} />
           {months!.map((mc, ci) => {
-            const g  = monthLookups![ci].groups.get(group.departmentId) ?? ZERO
+            const g  = effGroupMM(group, ci)
             const gb = monthLookups![ci].grossBudget
             const ga = monthLookups![ci].grossActual
             return (
@@ -759,8 +842,8 @@ export default function PLTable({
 
   function renderOpexGroupMM(group: PLGroupData, section: PLSectionData) {
     const isDeptExpanded = collapse.depts[group.departmentId] ?? false
-    const lastG          = monthLookups![mmLast].groups.get(group.departmentId) ?? ZERO
-    const prevG          = monthLookups![mmPrev].groups.get(group.departmentId) ?? ZERO
+    const lastG          = effGroupMM(group, mmLast)
+    const prevG          = effGroupMM(group, mmPrev)
     const catMap         = new Map<string, PLLineItemRow[]>()
     for (const li of group.lineItems) {
       if (!catMap.has(li.categoryName)) catMap.set(li.categoryName, [])
@@ -778,7 +861,7 @@ export default function PLTable({
             type="department" id={group.departmentId}
             isEditable={isAdmin} suggestions={ownerOptions} />
           {months!.map((mc, ci) => {
-            const g  = monthLookups![ci].groups.get(group.departmentId) ?? ZERO
+            const g  = effGroupMM(group, ci)
             const gb = monthLookups![ci].grossBudget
             const ga = monthLookups![ci].grossActual
             return (
@@ -809,10 +892,7 @@ export default function PLTable({
                   type="category" id={catItems[0]?.categoryId}
                   isEditable={isAdmin} suggestions={ownerOptions} />
                 {months!.map((mc, ci) => {
-                  const catTotal = catItems.reduce((acc, li) => {
-                    const a = monthLookups![ci].lineItems.get(li.lineItemId) ?? ZERO
-                    return { budget: acc.budget + a.budget, actual: acc.actual + a.actual, variance: acc.variance + a.variance }
-                  }, ZERO)
+                  const catTotal = catItems.reduce((acc, li) => addAmounts(acc, effLIMM(li.lineItemId, ci)), ZERO)
                   const gb = monthLookups![ci].grossBudget
                   const ga = monthLookups![ci].grossActual
                   return (
@@ -825,14 +905,8 @@ export default function PLTable({
                   )
                 })}
                 {mmN >= 2 && (() => {
-                  const last = catItems.reduce((acc, li) => {
-                    const a = monthLookups![mmLast].lineItems.get(li.lineItemId) ?? ZERO
-                    return { budget: acc.budget + a.budget, actual: acc.actual + a.actual, variance: acc.variance + a.variance }
-                  }, ZERO)
-                  const prev = catItems.reduce((acc, li) => {
-                    const a = monthLookups![mmPrev].lineItems.get(li.lineItemId) ?? ZERO
-                    return { budget: acc.budget + a.budget, actual: acc.actual + a.actual, variance: acc.variance + a.variance }
-                  }, ZERO)
+                  const last = catItems.reduce((acc, li) => addAmounts(acc, effLIMM(li.lineItemId, mmLast)), ZERO)
+                  const prev = catItems.reduce((acc, li) => addAmounts(acc, effLIMM(li.lineItemId, mmPrev)), ZERO)
                   return <DeltaCell p1={last.actual} p2={prev.actual} revCtx={false} />
                 })()}
               </tr>
@@ -844,11 +918,12 @@ export default function PLTable({
     )
   }
 
-  // ── Section 4: COGS flat row (single item, no expand arrow) ─────────────────
+  // ── COGS flat row (single item, no expand arrow) ──────────────────────────
 
   function renderCogsFlatRowCmp(group: PLGroupData, section: PLSectionData) {
     const li = group.lineItems[0]
     if (!li) return null
+    const lia = effLICmp(li)
     const p2a = p2?.items[li.lineItemId] ?? ZERO
     return (
       <tr key={group.departmentId} className="bg-gray-100 border-b border-gray-200">
@@ -860,18 +935,24 @@ export default function PLTable({
           isEditable={isAdmin && !section.hideOwner} suggestions={ownerOptions} />
         {canEdit ? (
           <>
-            <InlineEditCell value={li.budget} py="py-2" onSave={makeSave(li, 'budget', p1Year, p1Month)} />
-            <PctCell v={li.budget} base={p1gb} py="py-2" />
-            <InlineEditCell value={li.actual} py="py-2" onSave={makeSave(li, 'actual', p1Year, p1Month)} />
-            <PctCell v={li.actual} base={p1ga} py="py-2" />
+            <InlineEditCell value={li.budget} py="py-2"
+              onSave={makeSave(li, 'budget', p1Year, p1Month)}
+              onOptimisticChange={makeOptimistic(li.lineItemId, 'budget', p1Year, p1Month)}
+              onRevert={makeRevert(li.lineItemId, 'budget', p1Year, p1Month)} />
+            <PctCell v={lia.budget} base={p1gb} py="py-2" />
+            <InlineEditCell value={li.actual} py="py-2"
+              onSave={makeSave(li, 'actual', p1Year, p1Month)}
+              onOptimisticChange={makeOptimistic(li.lineItemId, 'actual', p1Year, p1Month)}
+              onRevert={makeRevert(li.lineItemId, 'actual', p1Year, p1Month)} />
+            <PctCell v={lia.actual} base={p1ga} py="py-2" />
           </>
         ) : (
-          <PCols a={group.subtotal} gb={p1gb} ga={p1ga} py="py-2" />
+          <PCols a={effGroupCmp(group)} gb={p1gb} ga={p1ga} py="py-2" />
         )}
         {hasPeriod2 && (
           <>
             <PCols a={p2a} gb={p2!.grossBudget} ga={p2!.grossActual} py="py-2" />
-            <DeltaCell p1={li.actual} p2={p2a.actual} revCtx={false} py="py-2" />
+            <DeltaCell p1={lia.actual} p2={p2a.actual} revCtx={false} py="py-2" />
           </>
         )}
       </tr>
@@ -881,8 +962,8 @@ export default function PLTable({
   function renderCogsFlatRowMM(group: PLGroupData, section: PLSectionData) {
     const li = group.lineItems[0]
     if (!li) return null
-    const lastLI = monthLookups![mmLast].lineItems.get(li.lineItemId) ?? ZERO
-    const prevLI = monthLookups![mmPrev].lineItems.get(li.lineItemId) ?? ZERO
+    const lastLI = effLIMM(li.lineItemId, mmLast)
+    const prevLI = effLIMM(li.lineItemId, mmPrev)
     return (
       <tr key={group.departmentId} className="bg-gray-100 border-b border-gray-200">
         <td className="pl-4 pr-3 py-2 text-[13px] font-medium text-gray-700">
@@ -892,19 +973,25 @@ export default function PLTable({
           type="department" id={group.departmentId}
           isEditable={isAdmin && !section.hideOwner} suggestions={ownerOptions} />
         {months!.map((mc, ci) => {
-          const a  = monthLookups![ci].lineItems.get(li.lineItemId) ?? ZERO
+          const a  = effLIMM(li.lineItemId, ci)
           const gb = monthLookups![ci].grossBudget
           const ga = monthLookups![ci].grossActual
           return (
             <Fragment key={`${mc.year}-${mc.month}`}>
               {canEdit ? (
-                <InlineEditCell value={a.budget} py="py-2" onSave={makeSave(li, 'budget', mc.year, mc.month)} />
+                <InlineEditCell value={a.budget} py="py-2"
+                  onSave={makeSave(li, 'budget', mc.year, mc.month)}
+                  onOptimisticChange={makeOptimistic(li.lineItemId, 'budget', mc.year, mc.month)}
+                  onRevert={makeRevert(li.lineItemId, 'budget', mc.year, mc.month)} />
               ) : (
                 <AmtCell n={a.budget} py="py-2" />
               )}
               <PctCell v={a.budget} base={gb} py="py-2" />
               {canEdit ? (
-                <InlineEditCell value={a.actual} py="py-2" onSave={makeSave(li, 'actual', mc.year, mc.month)} />
+                <InlineEditCell value={a.actual} py="py-2"
+                  onSave={makeSave(li, 'actual', mc.year, mc.month)}
+                  onOptimisticChange={makeOptimistic(li.lineItemId, 'actual', mc.year, mc.month)}
+                  onRevert={makeRevert(li.lineItemId, 'actual', mc.year, mc.month)} />
               ) : (
                 <AmtCell n={a.actual} py="py-2" />
               )}
@@ -917,10 +1004,7 @@ export default function PLTable({
     )
   }
 
-  // ── Section 4b: COGM Supporting Schedule (amber, reference only) ─────────────
-  // Renders all groups in the section (core COGM + Factory Overhead), each collapsible.
-  // Total COGM = sum of all groups (auto-computed by section.total).
-  // Inventory movement = Total COGM (section) − COGS own-make.
+  // ── COGM Supporting Schedule ──────────────────────────────────────────────
 
   function renderCogmSchedule(section: PLSectionData) {
     const COGM_BG      = '#fdf8ee'
@@ -943,7 +1027,6 @@ export default function PLTable({
       return 'no change in inventory'
     }
 
-    // Collect ALL line items across all dept groups, re-grouped by cogmGroup
     const allItems = section.groups.flatMap(g => g.lineItems)
     const COGM_SUB_GROUPS = [
       { colKey: 'cogm_DM',  cogmGroup: 'DM'  as const, label: 'Direct Materials (DM)' },
@@ -951,17 +1034,17 @@ export default function PLTable({
       { colKey: 'cogm_MOH', cogmGroup: 'MOH' as const, label: 'Manufacturing Overhead (MOH)' },
     ]
 
-    // Standard Cost/ml helpers (comparison mode)
-    const monthKey   = `${String(p1Year)}-${String(p1Month).padStart(2, '0')}-01`
-    const fgVolume   = fgProduction[monthKey] ?? null
+    const monthKey = `${String(p1Year)}-${String(p1Month).padStart(2, '0')}-01`
+    const fgVolume = fgProduction[monthKey] ?? null
     function fmtPerMl(n: number | null): string {
       if (n === null || !isFinite(n) || n === 0) return '—'
       return `฿${n.toFixed(2)}/ml`
     }
 
+    const secEff = effSectionCmp(section)
+
     return (
       <Fragment key={section.id}>
-        {/* Section header — shows Total COGM (all groups) */}
         <tr style={{ borderTop: `2px dashed ${COGM_BORDER}`, backgroundColor: COGM_BG }}
             className="cursor-pointer select-none"
             onClick={() => toggleSection(section.id)}>
@@ -979,7 +1062,7 @@ export default function PLTable({
           {isMultiMonth ? (
             <>
               {months!.map((mc, ci) => {
-                const st = monthLookups![ci].sections.get(section.id) ?? ZERO
+                const st = effSectionMM(section, ci)
                 const gb = monthLookups![ci].grossBudget
                 const ga = monthLookups![ci].grossActual
                 return (
@@ -992,18 +1075,18 @@ export default function PLTable({
                 )
               })}
               {mmN >= 2 && (() => {
-                const lastSt = monthLookups![mmLast].sections.get(section.id) ?? ZERO
-                const prevSt = monthLookups![mmPrev].sections.get(section.id) ?? ZERO
+                const lastSt = effSectionMM(section, mmLast)
+                const prevSt = effSectionMM(section, mmPrev)
                 return <DeltaCell p1={lastSt.actual} p2={prevSt.actual} revCtx={false} py="py-2.5" />
               })()}
             </>
           ) : (
             <>
-              <PCols a={section.total} gb={p1gb} ga={p1ga} py="py-2.5" />
+              <PCols a={secEff} gb={p1gb} ga={p1ga} py="py-2.5" />
               {hasPeriod2 && (
                 <>
                   <PCols a={p2?.sectionTotals[section.id] ?? ZERO} gb={p2!.grossBudget} ga={p2!.grossActual} py="py-2.5" />
-                  <DeltaCell p1={section.total.actual} p2={(p2?.sectionTotals[section.id] ?? ZERO).actual} revCtx={false} py="py-2.5" />
+                  <DeltaCell p1={secEff.actual} p2={(p2?.sectionTotals[section.id] ?? ZERO).actual} revCtx={false} py="py-2.5" />
                 </>
               )}
             </>
@@ -1012,17 +1095,15 @@ export default function PLTable({
 
         {isSectionOpen && (
           <>
-            {/* DM / DL / MOH sub-groups, derived from categories.cogm_group */}
             {COGM_SUB_GROUPS.map(({ colKey, cogmGroup, label }) => {
-              const subItems  = allItems.filter(li => li.cogmGroup === cogmGroup)
+              const subItems    = allItems.filter(li => li.cogmGroup === cogmGroup)
               const isGroupOpen = collapse.depts[colKey] ?? false
-              const subTotal  = subItems.reduce(addAmounts, ZERO)
-              const p2SubTotal = p2
+              const subTotal    = subItems.reduce((acc: Amounts, li) => addAmounts(acc, effLICmp(li)), ZERO)
+              const p2SubTotal  = p2
                 ? subItems.reduce((acc: Amounts, li) => addAmounts(acc, p2.items[li.lineItemId] ?? ZERO), ZERO)
                 : ZERO
               return (
                 <Fragment key={colKey}>
-                  {/* Sub-group header */}
                   <tr style={{ backgroundColor: COGM_GRP_BG, borderLeft: `2px solid ${COGM_BORDER}` }}
                       className="cursor-pointer select-none"
                       onClick={() => toggleDept(colKey)}>
@@ -1036,7 +1117,7 @@ export default function PLTable({
                     {isMultiMonth ? (
                       <>
                         {months!.map((mc, ci) => {
-                          const cgTotal = subItems.reduce((acc, li) => addAmounts(acc, monthLookups![ci].lineItems.get(li.lineItemId) ?? ZERO), ZERO)
+                          const cgTotal = subItems.reduce((acc, li) => addAmounts(acc, effLIMM(li.lineItemId, ci)), ZERO)
                           const gb = monthLookups![ci].grossBudget
                           const ga = monthLookups![ci].grossActual
                           return (
@@ -1049,8 +1130,8 @@ export default function PLTable({
                           )
                         })}
                         {mmN >= 2 && (() => {
-                          const last = subItems.reduce((acc, li) => addAmounts(acc, monthLookups![mmLast].lineItems.get(li.lineItemId) ?? ZERO), ZERO)
-                          const prev = subItems.reduce((acc, li) => addAmounts(acc, monthLookups![mmPrev].lineItems.get(li.lineItemId) ?? ZERO), ZERO)
+                          const last = subItems.reduce((acc, li) => addAmounts(acc, effLIMM(li.lineItemId, mmLast)), ZERO)
+                          const prev = subItems.reduce((acc, li) => addAmounts(acc, effLIMM(li.lineItemId, mmPrev)), ZERO)
                           return <DeltaCell p1={last.actual} p2={prev.actual} revCtx={false} py="py-2" />
                         })()}
                       </>
@@ -1067,12 +1148,11 @@ export default function PLTable({
                     )}
                   </tr>
 
-                  {/* Line items */}
                   {isGroupOpen && subItems.map(li => {
                     const p2a      = p2?.items[li.lineItemId] ?? ZERO
                     const histClick = onRowClick ? () => onRowClick!(li.lineItemId, li.name) : undefined
-                    const lastA    = isMultiMonth ? (monthLookups![mmLast].lineItems.get(li.lineItemId) ?? ZERO) : ZERO
-                    const prevA    = isMultiMonth ? (monthLookups![mmPrev].lineItems.get(li.lineItemId) ?? ZERO) : ZERO
+                    const lastA    = isMultiMonth ? effLIMM(li.lineItemId, mmLast) : ZERO
+                    const prevA    = isMultiMonth ? effLIMM(li.lineItemId, mmPrev) : ZERO
                     return (
                       <tr key={li.lineItemId}
                           className="border-b"
@@ -1087,19 +1167,25 @@ export default function PLTable({
                         {isMultiMonth ? (
                           <>
                             {months!.map((mc, ci) => {
-                              const a  = monthLookups![ci].lineItems.get(li.lineItemId) ?? ZERO
+                              const a  = effLIMM(li.lineItemId, ci)
                               const gb = monthLookups![ci].grossBudget
                               const ga = monthLookups![ci].grossActual
                               return (
                                 <Fragment key={`${mc.year}-${mc.month}`}>
                                   {canEdit ? (
-                                    <InlineEditCell value={a.budget} onSave={makeSave(li, 'budget', mc.year, mc.month)} />
+                                    <InlineEditCell value={a.budget}
+                                      onSave={makeSave(li, 'budget', mc.year, mc.month)}
+                                      onOptimisticChange={makeOptimistic(li.lineItemId, 'budget', mc.year, mc.month)}
+                                      onRevert={makeRevert(li.lineItemId, 'budget', mc.year, mc.month)} />
                                   ) : (
                                     <AmtCell n={a.budget} />
                                   )}
                                   <PctCell v={a.budget} base={gb} onClick={histClick} />
                                   {canEdit ? (
-                                    <InlineEditCell value={a.actual} onSave={makeSave(li, 'actual', mc.year, mc.month)} />
+                                    <InlineEditCell value={a.actual}
+                                      onSave={makeSave(li, 'actual', mc.year, mc.month)}
+                                      onOptimisticChange={makeOptimistic(li.lineItemId, 'actual', mc.year, mc.month)}
+                                      onRevert={makeRevert(li.lineItemId, 'actual', mc.year, mc.month)} />
                                   ) : (
                                     <AmtCell n={a.actual} />
                                   )}
@@ -1113,10 +1199,16 @@ export default function PLTable({
                           <>
                             {canEdit ? (
                               <>
-                                <InlineEditCell value={li.budget} onSave={makeSave(li, 'budget', p1Year, p1Month)} />
-                                <PctCell v={li.budget} base={p1gb} onClick={histClick} />
-                                <InlineEditCell value={li.actual} onSave={makeSave(li, 'actual', p1Year, p1Month)} />
-                                <PctCell v={li.actual} base={p1ga} onClick={histClick} />
+                                <InlineEditCell value={li.budget}
+                                  onSave={makeSave(li, 'budget', p1Year, p1Month)}
+                                  onOptimisticChange={makeOptimistic(li.lineItemId, 'budget', p1Year, p1Month)}
+                                  onRevert={makeRevert(li.lineItemId, 'budget', p1Year, p1Month)} />
+                                <PctCell v={effLICmp(li).budget} base={p1gb} onClick={histClick} />
+                                <InlineEditCell value={li.actual}
+                                  onSave={makeSave(li, 'actual', p1Year, p1Month)}
+                                  onOptimisticChange={makeOptimistic(li.lineItemId, 'actual', p1Year, p1Month)}
+                                  onRevert={makeRevert(li.lineItemId, 'actual', p1Year, p1Month)} />
+                                <PctCell v={effLICmp(li).actual} base={p1ga} onClick={histClick} />
                               </>
                             ) : (
                               <>
@@ -1129,7 +1221,7 @@ export default function PLTable({
                             {hasPeriod2 && (
                               <>
                                 <PCols a={p2a} gb={p2!.grossBudget} ga={p2!.grossActual} />
-                                <DeltaCell p1={li.actual} p2={p2a.actual} revCtx={false} />
+                                <DeltaCell p1={effLICmp(li).actual} p2={p2a.actual} revCtx={false} />
                               </>
                             )}
                           </>
@@ -1141,10 +1233,10 @@ export default function PLTable({
               )
             })}
 
-            {/* Total COGM row — DM + DL + MOH */}
+            {/* Total COGM row */}
             {(() => {
-              const lastSt = isMultiMonth ? (monthLookups![mmLast].sections.get(section.id) ?? ZERO) : ZERO
-              const prevSt = isMultiMonth ? (monthLookups![mmPrev].sections.get(section.id) ?? ZERO) : ZERO
+              const lastSt = isMultiMonth ? effSectionMM(section, mmLast) : ZERO
+              const prevSt = isMultiMonth ? effSectionMM(section, mmPrev) : ZERO
               const p2sec  = p2?.sectionTotals[section.id] ?? ZERO
               return (
                 <tr className="border-b" style={{ backgroundColor: COGM_BG, borderBottomColor: COGM_BORDER }}>
@@ -1155,7 +1247,7 @@ export default function PLTable({
                   {isMultiMonth ? (
                     <>
                       {months!.map((mc, ci) => {
-                        const st = monthLookups![ci].sections.get(section.id) ?? ZERO
+                        const st = effSectionMM(section, ci)
                         const gb = monthLookups![ci].grossBudget
                         const ga = monthLookups![ci].grossActual
                         return (
@@ -1171,11 +1263,11 @@ export default function PLTable({
                     </>
                   ) : (
                     <>
-                      <PCols a={section.total} gb={p1gb} ga={p1ga} py="py-2" />
+                      <PCols a={secEff} gb={p1gb} ga={p1ga} py="py-2" />
                       {hasPeriod2 && (
                         <>
                           <PCols a={p2sec} gb={p2!.grossBudget} ga={p2!.grossActual} py="py-2" />
-                          <DeltaCell p1={section.total.actual} p2={p2sec.actual} revCtx={false} py="py-2" />
+                          <DeltaCell p1={secEff.actual} p2={p2sec.actual} revCtx={false} py="py-2" />
                         </>
                       )}
                     </>
@@ -1209,21 +1301,19 @@ export default function PLTable({
                   )}
                 </td>
                 <td />
-                {/* budget std cost */}
                 <td className="px-3 py-1.5 text-[11px] text-right tabular-nums font-medium" style={{ color: COGM_TEXT }}>
-                  {fmtPerMl(fgVolume ? section.total.budget / fgVolume : null)}
+                  {fmtPerMl(fgVolume ? secEff.budget / fgVolume : null)}
                 </td>
                 <td />
-                {/* actual std cost */}
                 <td className="px-3 py-1.5 text-[11px] text-right tabular-nums font-medium" style={{ color: COGM_TEXT }}>
-                  {fmtPerMl(fgVolume ? section.total.actual / fgVolume : null)}
+                  {fmtPerMl(fgVolume ? secEff.actual / fgVolume : null)}
                 </td>
                 <td />
                 {hasPeriod2 && <><td /><td /><td /><td /><td /></>}
               </tr>
             )}
 
-            {/* Inventory movement = Total COGM − COGS own-make */}
+            {/* Inventory movement */}
             {(() => {
               if (isMultiMonth) {
                 return (
@@ -1232,8 +1322,11 @@ export default function PLTable({
                       Inventory movement
                     </td>
                     {months!.map((mc, ci) => {
-                      const cogmSt = monthLookups![ci].sections.get(section.id) ?? ZERO
-                      const cogsSt = monthLookups![ci].groups.get(cogsDeptId) ?? ZERO
+                      const cogmSt = effSectionMM(section, ci)
+                      const cogsSt = effGroupMM(
+                        refData!.sections.find(s => s.id === 'cost_of_goods')?.groups.find(g => g.departmentId === cogsDeptId) ?? { lineItems: [], departmentId: '', deptCode: '', deptFullName: '', subtotalLabel: '', ownerName: null, subtotal: ZERO },
+                        ci,
+                      )
                       return (
                         <td key={`${mc.year}-${mc.month}`} colSpan={4}
                             className="px-2 py-1.5 text-[10px] italic text-center"
@@ -1251,7 +1344,7 @@ export default function PLTable({
                   <td colSpan={2 + 4 + (hasPeriod2 ? 5 : 0)}
                       className="px-3 py-1.5 text-[10px] italic"
                       style={{ color: COGM_TEXT }}>
-                    {invText(section.total.actual, cogsGroup?.subtotal.actual ?? 0)}
+                    {invText(secEff.actual, cogsGroup?.subtotal.actual ?? 0)}
                   </td>
                 </tr>
               )
@@ -1380,6 +1473,7 @@ export default function PLTable({
               : []
             const sectionRevCtx = REV_IDS.has(section.id)
             const p2sec         = p2?.sectionTotals[section.id] ?? ZERO
+            const secEff        = isMultiMonth ? null : effSectionCmp(section)
 
             return (
               <Fragment key={section.id}>
@@ -1393,7 +1487,7 @@ export default function PLTable({
                   {isMultiMonth ? (
                     <>
                       {months!.map((mc, ci) => {
-                        const st = monthLookups![ci].sections.get(section.id) ?? ZERO
+                        const st = effSectionMM(section, ci)
                         const gb = monthLookups![ci].grossBudget
                         const ga = monthLookups![ci].grossActual
                         return (
@@ -1406,18 +1500,18 @@ export default function PLTable({
                         )
                       })}
                       {mmN >= 2 && (() => {
-                        const lastSt = monthLookups![mmLast].sections.get(section.id) ?? ZERO
-                        const prevSt = monthLookups![mmPrev].sections.get(section.id) ?? ZERO
+                        const lastSt = effSectionMM(section, mmLast)
+                        const prevSt = effSectionMM(section, mmPrev)
                         return <DeltaCell p1={lastSt.actual} p2={prevSt.actual} revCtx={sectionRevCtx} py="py-2.5" />
                       })()}
                     </>
                   ) : (
                     <>
-                      <PCols a={section.total} gb={p1gb} ga={p1ga} py="py-2.5" />
+                      <PCols a={secEff!} gb={p1gb} ga={p1ga} py="py-2.5" />
                       {hasPeriod2 && (
                         <>
                           <PCols a={p2sec} gb={p2!.grossBudget} ga={p2!.grossActual} py="py-2.5" />
-                          <DeltaCell p1={section.total.actual} p2={p2sec.actual} revCtx={sectionRevCtx} py="py-2.5" />
+                          <DeltaCell p1={secEff!.actual} p2={p2sec.actual} revCtx={sectionRevCtx} py="py-2.5" />
                         </>
                       )}
                     </>

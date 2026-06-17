@@ -10,20 +10,20 @@ function serviceClient() {
   })
 }
 
-/** GET — all standard cost rows joined with skus (DM only) */
+/** GET — all standard cost rows joined with skus (DM only). DB column is `name`, exposed as `sku_name`. */
 export async function GET() {
   try {
     const db = serviceClient()
     const { data, error } = await db
       .from('standard_costs')
-      .select('id, sku_id, effective_month, dm_per_ml, updated_at, skus(sku_name, sku_code)')
+      .select('id, sku_id, effective_month, dm_per_ml, updated_at, skus(name, sku_code)')
       .order('effective_month', { ascending: false })
     if (error) return NextResponse.json([], { status: 200 })
     return NextResponse.json(
       (data ?? []).map((r: any) => ({
         id:              r.id,
         sku_id:          r.sku_id,
-        sku_name:        r.skus?.sku_name ?? '',
+        sku_name:        r.skus?.name ?? '',      // DB `name` → API `sku_name`
         sku_code:        r.skus?.sku_code ?? '',
         effective_month: r.effective_month,
         dm_per_ml:       Number(r.dm_per_ml),
