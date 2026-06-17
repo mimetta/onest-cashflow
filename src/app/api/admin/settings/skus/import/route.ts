@@ -86,7 +86,7 @@ export async function POST(req: NextRequest) {
       let code = baseCode; let attempt = 0; let inserted = false
       while (true) {
         // DB column is `name`
-        const insertData = { sku_code: code, name, uom: 'ml', volume_ml: row.volume_ml }
+        const insertData = { sku_code: code, name, volume_ml: row.volume_ml, is_active: true }
         const { data, error } = await db
           .from('skus')
           .insert(insertData)

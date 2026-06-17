@@ -3,7 +3,7 @@ import { useState, useEffect, useRef } from 'react'
 
 type Sku = {
   id: string; sku_code: string; sku_name: string
-  uom: string; volume_ml: number | null; is_active: boolean
+  volume_ml: number | null; is_active: boolean
 }
 
 type PreviewRow = {
@@ -48,7 +48,7 @@ export default function SkusPage() {
   const [skus,         setSkus]         = useState<Sku[]>([])
   const [loading,      setLoading]      = useState(true)
   const [adding,       setAdding]       = useState(false)
-  const [form,         setForm]         = useState({ sku_code: '', sku_name: '', uom: 'ml' })
+  const [form,         setForm]         = useState({ sku_code: '', sku_name: '' })
   const [saving,       setSaving]       = useState(false)
   const [formError,    setFormError]    = useState<string | null>(null)
   const [preview,      setPreview]      = useState<PreviewRow[] | null>(null)
@@ -75,7 +75,7 @@ export default function SkusPage() {
     if (res.ok) {
       const sku = await res.json()
       setSkus(prev => [...prev, sku].sort((a, b) => a.sku_code.localeCompare(b.sku_code)))
-      setForm({ sku_code: '', sku_name: '', uom: 'ml' }); setAdding(false)
+      setForm({ sku_code: '', sku_name: '' }); setAdding(false)
     } else {
       const j = await res.json(); setFormError(j.error ?? 'Failed')
     }
@@ -167,15 +167,15 @@ export default function SkusPage() {
       {adding && (
         <form onSubmit={handleAdd} className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm space-y-3">
           <h3 className="text-sm font-semibold text-gray-700">New SKU</h3>
-          <div className="grid grid-cols-3 gap-3">
-            {(['sku_code', 'sku_name', 'uom'] as const).map(f => (
+          <div className="grid grid-cols-2 gap-3">
+            {(['sku_code', 'sku_name'] as const).map(f => (
               <div key={f}>
                 <label className="block text-xs font-medium text-gray-500 mb-1">
-                  {f === 'sku_code' ? 'SKU Code' : f === 'sku_name' ? 'SKU Name' : 'Unit (UoM)'}
+                  {f === 'sku_code' ? 'SKU Code' : 'SKU Name'}
                 </label>
                 <input value={form[f]} onChange={e => setForm(p => ({ ...p, [f]: e.target.value }))}
-                  placeholder={f === 'sku_code' ? 'OWB-250' : f === 'sku_name' ? 'Product A 250ml' : 'ml'}
-                  required={f !== 'uom'}
+                  placeholder={f === 'sku_code' ? 'OWB-250' : 'Product A 250ml'}
+                  required
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400" />
               </div>
             ))}
@@ -270,7 +270,6 @@ export default function SkusPage() {
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">SKU Code</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">SKU Name</th>
                 <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Volume (ml)</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">UoM</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Status</th>
                 <th className="px-4 py-3" />
               </tr>
@@ -283,7 +282,6 @@ export default function SkusPage() {
                   <td className="px-4 py-3 text-right tabular-nums text-gray-600">
                     {sku.volume_ml != null ? sku.volume_ml.toLocaleString('en-US') : '—'}
                   </td>
-                  <td className="px-4 py-3 text-gray-500">{sku.uom}</td>
                   <td className="px-4 py-3">
                     <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${
                       sku.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'
