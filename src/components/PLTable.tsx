@@ -654,7 +654,7 @@ export default function PLTable({
             </>
           )}
         </tr>
-        {isDeptExpanded && Array.from(catMap.entries()).map(([catName, catItems]) => {
+        {isDeptExpanded && Array.from(catMap.entries()).sort(([a], [b]) => a.localeCompare(b)).map(([catName, catItems]) => {
           const catKey        = `${group.departmentId}|${catName}`
           const isCatExpanded = collapse.categories[catKey] ?? false
           const catOwner      = catItems[0]?.categoryOwnerName ?? null
@@ -875,7 +875,7 @@ export default function PLTable({
           })}
           {mmN >= 2 && <DeltaCell p1={lastG.actual} p2={prevG.actual} revCtx={false} py="py-2" />}
         </tr>
-        {isDeptExpanded && Array.from(catMap.entries()).map(([catName, catItems]) => {
+        {isDeptExpanded && Array.from(catMap.entries()).sort(([a], [b]) => a.localeCompare(b)).map(([catName, catItems]) => {
           const catKey        = `${group.departmentId}|${catName}`
           const isCatExpanded = collapse.categories[catKey] ?? false
           const catOwner      = catItems[0]?.categoryOwnerName ?? null
