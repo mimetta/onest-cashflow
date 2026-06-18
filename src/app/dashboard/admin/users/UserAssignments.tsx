@@ -55,18 +55,29 @@ function InviteForm({ departments }: { departments: DeptRow[] }) {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+
+    if (role === 'dept_head' && selectedDepts.length === 0) {
+      setStatus({ type: 'error', msg: 'Please select at least one department for a dept_head user.' })
+      return
+    }
+
+    const payload = { email, role, departmentIds: selectedDepts }
+    console.log('[invite] submitting payload:', payload)
+
     setLoading(true); setStatus(null)
     try {
       const res = await fetch('/api/admin/users/invite', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, role, departmentIds: selectedDepts }),
+        body: JSON.stringify(payload),
       })
       const data = await res.json()
+      console.log('[invite] response:', res.status, data)
       if (!res.ok) throw new Error(data.error ?? 'Invite failed')
       setStatus({ type: 'success', msg: data.message ?? `Invitation sent to ${email}.` })
       setEmail(''); setSelectedDepts([])
     } catch (e: any) {
+      console.error('[invite] error:', e)
       setStatus({ type: 'error', msg: e.message })
     } finally {
       setLoading(false)
@@ -114,7 +125,12 @@ function InviteForm({ departments }: { departments: DeptRow[] }) {
 
           {role === 'dept_head' && departments.length > 0 && (
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-2">Departments</label>
+              <label className="block text-xs font-medium text-gray-600 mb-2">
+                Departments
+                {selectedDepts.length === 0 && (
+                  <span className="ml-2 text-amber-500 font-normal">(required — select at least one)</span>
+                )}
+              </label>
               <div className="flex flex-wrap gap-2">
                 {departments.map(d => (
                   <button
