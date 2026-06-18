@@ -29,10 +29,11 @@ function rangeLabel(anchor: string): string {
   return `${MN[sm - 1]} ${sy} — ${MN[em - 1]} ${ey}`
 }
 
-function isAtCurrentMonth(anchor: string): boolean {
+function isPastMaxMonth(anchor: string): boolean {
+  // Allow forward navigation up to December of next year
   const now    = new Date()
-  const nowStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
-  return anchor >= nowStr
+  const maxStr = `${now.getFullYear() + 1}-12`
+  return anchor >= maxStr
 }
 
 export default function MonthRangeNavigator({ mode, anchor }: Props) {
@@ -78,7 +79,7 @@ export default function MonthRangeNavigator({ mode, anchor }: Props) {
           </span>
           <button
             onClick={() => navigate('3month', shiftAnchor(anchor, 1))}
-            disabled={isAtCurrentMonth(anchor)}
+            disabled={isPastMaxMonth(anchor)}
             className="px-2 py-1 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
           >
             Next →

@@ -140,14 +140,16 @@ function PCols({ a, gb, ga, py = 'py-1.5' }: { a: Amounts; gb: number; ga: numbe
   )
 }
 
-function OwnerCell({ value, type, id, isEditable, showDash, py = 'py-1.5', suggestions = [] }: {
+type OwnerOptions = { people: string[]; depts: string[] }
+
+function OwnerCell({ value, type, id, isEditable, showDash, py = 'py-1.5', suggestions = { people: [], depts: [] } }: {
   value?: string | null
   type?: 'department' | 'category' | 'line_item'
   id?: string
   isEditable?: boolean
   showDash?: boolean
   py?: string
-  suggestions?: string[]
+  suggestions?: OwnerOptions
 }) {
   const canEdit = isEditable && !!type && !!id
   const [editing, setEditing] = useState(false)
@@ -176,24 +178,39 @@ function OwnerCell({ value, type, id, isEditable, showDash, py = 'py-1.5', sugge
   }
 
   if (editing) {
-    const listId = `ow-${id}`
+    const hasPeople = suggestions.people.length > 0
     return (
       <td className={`px-2 ${py}`} onClick={e => e.stopPropagation()}>
-        <datalist id={listId}>
-          {suggestions.map(s => <option key={s} value={s} />)}
-        </datalist>
-        <input
+        <select
           autoFocus
-          list={listId}
           defaultValue={display ?? ''}
-          style={{ width: 140, fontSize: 11 }}
+          style={{ width: 148, fontSize: 11 }}
           className="border border-indigo-400 rounded px-1 py-0.5 focus:outline-none bg-white"
+          onChange={e => commit(e.target.value)}
           onBlur={e => commit(e.target.value)}
-          onKeyDown={e => {
-            if (e.key === 'Enter') e.currentTarget.blur()
-            if (e.key === 'Escape') setEditing(false)
-          }}
-        />
+          onKeyDown={e => { if (e.key === 'Escape') setEditing(false) }}
+        >
+          <option value="">— clear —</option>
+          {hasPeople ? (
+            <>
+              <optgroup label="People">
+                {suggestions.people.map(p => <option key={p} value={p}>{p}</option>)}
+              </optgroup>
+              <optgroup label="Departments">
+                {suggestions.depts.map(d => <option key={d} value={d}>{d}</option>)}
+              </optgroup>
+            </>
+          ) : (
+            <>
+              <optgroup label="Departments">
+                {suggestions.depts.map(d => <option key={d} value={d}>{d}</option>)}
+              </optgroup>
+              <optgroup label="">
+                <option disabled value="">Add users in User Management to assign people as owners</option>
+              </optgroup>
+            </>
+          )}
+        </select>
       </td>
     )
   }
@@ -348,14 +365,14 @@ export default function PLTable({
   const canEdit    = role === 'admin' || role === 'ceo'
   const isAdmin    = role === 'admin'
 
-  const [ownerOptions,  setOwnerOptions]  = useState<string[]>([])
+  const [ownerOptions,  setOwnerOptions]  = useState<OwnerOptions>({ people: [], depts: [] })
   const [fgProduction,  setFgProduction]  = useState<Record<string, number>>({})
 
   useEffect(() => {
     if (!isAdmin) return
     fetch('/api/pl/owner/options')
-      .then(r => r.ok ? r.json() : [])
-      .then(setOwnerOptions)
+      .then(r => r.ok ? r.json() : { people: [], depts: [] })
+      .then((d: OwnerOptions) => setOwnerOptions(d))
       .catch(() => {})
   }, [isAdmin])
 
@@ -1475,47 +1492,62 @@ export default function PLTable({
             const p2sec         = p2?.sectionTotals[section.id] ?? ZERO
             const secEff        = isMultiMonth ? null : effSectionCmp(section)
 
+            const isSecondarySection = section.id === 'revenue_product'
             return (
               <Fragment key={section.id}>
-                <tr className="bg-[#1e2a3a] text-white cursor-pointer hover:bg-[#263548] transition-colors select-none"
-                    onClick={() => toggleSection(section.id)}>
-                  <td className="px-3 py-2.5 text-xs font-bold uppercase tracking-wider">
-                    <span className="mr-2 text-slate-400 text-[10px]">{isSectionOpen ? '▼' : '▶'}</span>
+                <tr
+                  className={`text-white cursor-pointer transition-colors select-none ${
+                    isSecondarySection
+                      ? 'bg-slate-600 hover:bg-slate-500'
+                      : 'bg-[#1e2a3a] hover:bg-[#263548]'
+                  }`}
+                  onClick={() => toggleSection(section.id)}
+                >
+                  <td className={`px-3 uppercase tracking-wider ${isSecondarySection ? 'py-2 text-[11px] font-semibold' : 'py-2.5 text-xs font-bold'}`}>
+                    <span className="mr-2 text-slate-300 text-[10px]">{isSectionOpen ? '▼' : '▶'}</span>
                     {section.title}
+                    {isSecondarySection && <span className="ml-2 text-slate-300 text-[9px] font-normal normal-case tracking-normal opacity-80">supplementary</span>}
                   </td>
-                  <OwnerCell py="py-2.5" />
-                  {isMultiMonth ? (
-                    <>
-                      {months!.map((mc, ci) => {
-                        const st = effSectionMM(section, ci)
-                        const gb = monthLookups![ci].grossBudget
-                        const ga = monthLookups![ci].grossActual
-                        return (
-                          <Fragment key={`${mc.year}-${mc.month}`}>
-                            <AmtCell n={st.budget} py="py-2.5" />
-                            <PctCell v={st.budget} base={gb} py="py-2.5" />
-                            <AmtCell n={st.actual} py="py-2.5" />
-                            <PctCell v={st.actual} base={ga} py="py-2.5" />
-                          </Fragment>
-                        )
-                      })}
-                      {mmN >= 2 && (() => {
-                        const lastSt = effSectionMM(section, mmLast)
-                        const prevSt = effSectionMM(section, mmPrev)
-                        return <DeltaCell p1={lastSt.actual} p2={prevSt.actual} revCtx={sectionRevCtx} py="py-2.5" />
-                      })()}
-                    </>
-                  ) : (
-                    <>
-                      <PCols a={secEff!} gb={p1gb} ga={p1ga} py="py-2.5" />
-                      {hasPeriod2 && (
-                        <>
-                          <PCols a={p2sec} gb={p2!.grossBudget} ga={p2!.grossActual} py="py-2.5" />
-                          <DeltaCell p1={secEff!.actual} p2={p2sec.actual} revCtx={sectionRevCtx} py="py-2.5" />
-                        </>
-                      )}
-                    </>
-                  )}
+                  {(() => {
+                    const hpy = isSecondarySection ? 'py-2' : 'py-2.5'
+                    return (
+                      <>
+                        <OwnerCell py={hpy} />
+                        {isMultiMonth ? (
+                          <>
+                            {months!.map((mc, ci) => {
+                              const st = effSectionMM(section, ci)
+                              const gb = monthLookups![ci].grossBudget
+                              const ga = monthLookups![ci].grossActual
+                              return (
+                                <Fragment key={`${mc.year}-${mc.month}`}>
+                                  <AmtCell n={st.budget} py={hpy} />
+                                  <PctCell v={st.budget} base={gb} py={hpy} />
+                                  <AmtCell n={st.actual} py={hpy} />
+                                  <PctCell v={st.actual} base={ga} py={hpy} />
+                                </Fragment>
+                              )
+                            })}
+                            {mmN >= 2 && (() => {
+                              const lastSt = effSectionMM(section, mmLast)
+                              const prevSt = effSectionMM(section, mmPrev)
+                              return <DeltaCell p1={lastSt.actual} p2={prevSt.actual} revCtx={sectionRevCtx} py={hpy} />
+                            })()}
+                          </>
+                        ) : (
+                          <>
+                            <PCols a={secEff!} gb={p1gb} ga={p1ga} py={hpy} />
+                            {hasPeriod2 && (
+                              <>
+                                <PCols a={p2sec} gb={p2!.grossBudget} ga={p2!.grossActual} py={hpy} />
+                                <DeltaCell p1={secEff!.actual} p2={p2sec.actual} revCtx={sectionRevCtx} py={hpy} />
+                              </>
+                            )}
+                          </>
+                        )}
+                      </>
+                    )
+                  })()}
                 </tr>
                 {isSectionOpen && (
                   <>
