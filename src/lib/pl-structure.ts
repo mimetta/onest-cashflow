@@ -217,18 +217,18 @@ export const PL_SECTIONS: readonly PLSection[] = [
     defaultCollapsed: true,
     groups: [
       {
-        deptCode:     'CAPEX',
-        deptFullName: 'Factory Investment',
+        deptCode:      'Depreciation & CAPEX',
+        deptFullName:  'Factory Investment',
         subtotalLabel: 'Factory Investment subtotal',
       },
       {
-        deptCode:     'CAPEX',
-        deptFullName: 'New Store Investment',
+        deptCode:      'Depreciation & CAPEX',
+        deptFullName:  'New Store Investment',
         subtotalLabel: 'New Store Investment subtotal',
       },
       {
-        deptCode:     'CAPEX',
-        deptFullName: 'Lab Instrument Investment',
+        deptCode:      'Depreciation & CAPEX',
+        deptFullName:  'Lab Instrument Investment (RD)',
         subtotalLabel: 'Lab Instrument Investment subtotal',
       },
     ],
@@ -258,8 +258,8 @@ export const PL_CALCULATED_ROWS: readonly PLCalculatedRow[] = [
     ],
   },
   {
-    id:             'net_income',
-    label:          'NET INCOME',
+    id:             'net_profit',
+    label:          'NET PROFIT',
     afterSectionId: 'capex',
     terms: [
       { sectionTotalId: 'net_revenue', sign:  1 },

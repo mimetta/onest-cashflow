@@ -41,10 +41,10 @@ export default async function AdminDashboardPage({
     const periods3 = [shiftM(ay, am, -2), shiftM(ay, am, -1), { year: ay, month: am }]
     const monthsData = await getPLDataForMonths(periods3)
     const latestData = monthsData[monthsData.length - 1]
-    const revSection = latestData.sections.find(s => s.id === 'revenue_channel')
+    const revSection  = latestData.sections.find(s => s.id === 'revenue_channel')
     const grossProfit = getCalcRow(latestData, 'gross_profit')
     const opIncome    = getCalcRow(latestData, 'net_revenue')
-    const netIncome   = getCalcRow(latestData, 'net_income')
+    const netProfit   = getCalcRow(latestData, 'net_profit')
     const months: MonthColumn[] = periods3.map((p, i) => ({
       year: p.year, month: p.month,
       label: `${MN[p.month - 1]} ${p.year}`,
@@ -59,10 +59,10 @@ export default async function AdminDashboardPage({
             anchor={anchor}
             months={months}
             summaryCards={{
-              revenue:     revSection?.total.actual ?? 0,
-              grossProfit: grossProfit?.actual      ?? 0,
-              opIncome:    opIncome?.actual         ?? 0,
-              netIncome:   netIncome?.actual        ?? 0,
+              revenue:     { budget: revSection?.total.budget   ?? 0, actual: revSection?.total.actual   ?? 0 },
+              grossProfit: { budget: grossProfit?.budget        ?? 0, actual: grossProfit?.actual        ?? 0 },
+              opIncome:    { budget: opIncome?.budget           ?? 0, actual: opIncome?.actual           ?? 0 },
+              netProfit:   { budget: netProfit?.budget          ?? 0, actual: netProfit?.actual          ?? 0 },
             }}
             userId={user.id}
           />
@@ -77,7 +77,7 @@ export default async function AdminDashboardPage({
   const revSection  = period1Data.sections.find(s => s.id === 'revenue_channel')
   const grossProfit = getCalcRow(period1Data, 'gross_profit')
   const opIncome    = getCalcRow(period1Data, 'net_revenue')
-  const netIncome   = getCalcRow(period1Data, 'net_income')
+  const netProfit   = getCalcRow(period1Data, 'net_profit')
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
@@ -90,10 +90,10 @@ export default async function AdminDashboardPage({
           period2={{ label: p2Label, data: period2Data }}
           deltaLabel={deltaLabel}
           summaryCards={{
-            revenue:     revSection?.total.actual ?? 0,
-            grossProfit: grossProfit?.actual      ?? 0,
-            opIncome:    opIncome?.actual         ?? 0,
-            netIncome:   netIncome?.actual        ?? 0,
+            revenue:     { budget: revSection?.total.budget   ?? 0, actual: revSection?.total.actual   ?? 0 },
+            grossProfit: { budget: grossProfit?.budget        ?? 0, actual: grossProfit?.actual        ?? 0 },
+            opIncome:    { budget: opIncome?.budget           ?? 0, actual: opIncome?.actual           ?? 0 },
+            netProfit:   { budget: netProfit?.budget          ?? 0, actual: netProfit?.actual          ?? 0 },
           }}
           userId={user.id}
         />

@@ -9,11 +9,16 @@ import { approveSubmission, rejectSubmission } from './actions'
 
 function thb(n: number) { return `฿${Math.round(n).toLocaleString('en-US')}` }
 
-function KpiCard({ title, value, sub }: { title: string; value: number; sub?: string }) {
+function KpiCard({ title, budget, actual, sub }: { title: string; budget: number; actual: number; sub?: string }) {
   return (
     <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
       <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{title}</p>
-      <p className="mt-1 text-2xl font-bold text-gray-900 tabular-nums">{thb(value)}</p>
+      <p className="mt-1 text-2xl font-bold text-gray-900 tabular-nums">{thb(budget)}</p>
+      {actual !== 0 && (
+        <p className="mt-0.5 text-sm font-medium text-gray-500 tabular-nums">
+          {thb(actual)} <span className="text-xs font-normal text-gray-400">actual</span>
+        </p>
+      )}
       {sub && <p className="mt-0.5 text-xs text-gray-400">{sub}</p>}
     </div>
   )
@@ -28,7 +33,12 @@ interface Props {
   period1?:    { label: string; data: PLData }
   period2?:    { label: string; data: PLData }
   deltaLabel?: string
-  summaryCards: { revenue: number; grossProfit: number; opIncome: number; netIncome: number }
+  summaryCards: {
+    revenue:     { budget: number; actual: number }
+    grossProfit: { budget: number; actual: number }
+    opIncome:    { budget: number; actual: number }
+    netProfit:   { budget: number; actual: number }
+  }
   hrPeriod1:   { label: string; data: PLData }
   hrPeriod2:   { label: string; data: PLData }
   hrKpis:      { budget: number; actual: number; revenue: number }
@@ -39,9 +49,9 @@ export default function CeoDashboard({
   mode, anchor = '', months, period1, period2, deltaLabel,
   summaryCards, hrPeriod1, hrPeriod2, hrKpis, pendingSubmissions,
 }: Props) {
-  const { revenue, grossProfit, opIncome, netIncome } = summaryCards
-  const grossMargin = revenue > 0 ? `${((grossProfit / revenue) * 100).toFixed(1)}% margin` : undefined
-  const netMargin   = revenue > 0 ? `${((netIncome / revenue) * 100).toFixed(1)}% net margin` : undefined
+  const { revenue, grossProfit, opIncome, netProfit } = summaryCards
+  const grossMargin = revenue.budget > 0 ? `${((grossProfit.budget / revenue.budget) * 100).toFixed(1)}% margin` : undefined
+  const netMargin   = revenue.budget > 0 ? `${((netProfit.budget  / revenue.budget) * 100).toFixed(1)}% net margin` : undefined
   const hrVariance  = hrKpis.budget - hrKpis.actual
   const hrPct       = hrKpis.revenue > 0 ? `${(hrKpis.actual / hrKpis.revenue * 100).toFixed(1)}% of revenue` : undefined
 
@@ -86,10 +96,10 @@ export default function CeoDashboard({
       {activeTab === 'pl' && (
         <>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <KpiCard title="Total Revenue"     value={revenue}     sub={`${periodLabel} actual`} />
-            <KpiCard title="Gross Profit"      value={grossProfit} sub={grossMargin} />
-            <KpiCard title="Operating Income"  value={opIncome} />
-            <KpiCard title="Net Income"        value={netIncome}   sub={netMargin} />
+            <KpiCard title="Total Revenue"    budget={revenue.budget}     actual={revenue.actual}     sub={periodLabel} />
+            <KpiCard title="Gross Profit"     budget={grossProfit.budget} actual={grossProfit.actual} sub={grossMargin} />
+            <KpiCard title="Operating Income" budget={opIncome.budget}    actual={opIncome.actual} />
+            <KpiCard title="Net Profit"       budget={netProfit.budget}   actual={netProfit.actual}   sub={netMargin} />
           </div>
 
           {months ? (
@@ -163,10 +173,10 @@ export default function CeoDashboard({
       {activeTab === 'hr' && (
         <>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <KpiCard title="HR Budget"       value={hrKpis.budget}  sub={hrPeriod1.label} />
-            <KpiCard title="HR Actual"       value={hrKpis.actual}  sub={hrPct} />
-            <KpiCard title="Budget Variance" value={hrVariance}     sub={hrVariance >= 0 ? 'under budget' : 'over budget'} />
-            <KpiCard title="HR Headcount %"  value={hrKpis.revenue > 0 ? hrKpis.actual : 0} sub={hrPct ?? 'n/a'} />
+            <KpiCard title="HR Budget"       budget={hrKpis.budget}  actual={0} sub={hrPeriod1.label} />
+            <KpiCard title="HR Actual"       budget={hrKpis.actual}  actual={0} sub={hrPct} />
+            <KpiCard title="Budget Variance" budget={hrVariance}     actual={0} sub={hrVariance >= 0 ? 'under budget' : 'over budget'} />
+            <KpiCard title="HR Headcount %"  budget={hrKpis.revenue > 0 ? hrKpis.actual : 0} actual={0} sub={hrPct ?? 'n/a'} />
           </div>
           <PLTable period1={hrPeriod1} period2={hrPeriod2} deltaLabel={deltaLabel} defaultExpanded="all" />
         </>

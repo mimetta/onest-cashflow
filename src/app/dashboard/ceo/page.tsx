@@ -93,7 +93,7 @@ export default async function CeoDashboardPage({
     const revSection  = latestData.sections.find(s => s.id === 'revenue_channel')
     const grossProfit = getCalcRow(latestData, 'gross_profit')
     const opIncome    = getCalcRow(latestData, 'net_revenue')
-    const netIncome   = getCalcRow(latestData, 'net_income')
+    const netProfit   = getCalcRow(latestData, 'net_profit')
 
     const hrData1 = filterPLDataByHRCategory(latestData)
     const hrData2 = filterPLDataByHRCategory(prevData)
@@ -121,10 +121,10 @@ export default async function CeoDashboardPage({
             anchor={anchor}
             months={months}
             summaryCards={{
-              revenue:     revenue1,
-              grossProfit: grossProfit?.actual ?? 0,
-              opIncome:    opIncome?.actual    ?? 0,
-              netIncome:   netIncome?.actual   ?? 0,
+              revenue:     { budget: revSection?.total.budget ?? 0, actual: revenue1 },
+              grossProfit: { budget: grossProfit?.budget ?? 0, actual: grossProfit?.actual ?? 0 },
+              opIncome:    { budget: opIncome?.budget    ?? 0, actual: opIncome?.actual    ?? 0 },
+              netProfit:   { budget: netProfit?.budget   ?? 0, actual: netProfit?.actual   ?? 0 },
             }}
             hrPeriod1={hrPeriod1}
             hrPeriod2={hrPeriod2}
@@ -143,7 +143,7 @@ export default async function CeoDashboardPage({
   const revSection  = period1Data.sections.find(s => s.id === 'revenue_channel')
   const grossProfit = getCalcRow(period1Data, 'gross_profit')
   const opIncome    = getCalcRow(period1Data, 'net_revenue')
-  const netIncome   = getCalcRow(period1Data, 'net_income')
+  const netProfit   = getCalcRow(period1Data, 'net_profit')
   const hrData1     = filterPLDataByHRCategory(period1Data)
   const hrData2     = filterPLDataByHRCategory(period2Data)
   const hrBudget    = hrData1.sections.reduce((sum, s) => sum + s.total.budget, 0)
@@ -161,10 +161,10 @@ export default async function CeoDashboardPage({
           period2={{ label: p2Label, data: period2Data }}
           deltaLabel={deltaLabel}
           summaryCards={{
-            revenue:     revenue1,
-            grossProfit: grossProfit?.actual ?? 0,
-            opIncome:    opIncome?.actual    ?? 0,
-            netIncome:   netIncome?.actual   ?? 0,
+            revenue:     { budget: revSection?.total.budget ?? 0, actual: revenue1 },
+            grossProfit: { budget: grossProfit?.budget ?? 0, actual: grossProfit?.actual ?? 0 },
+            opIncome:    { budget: opIncome?.budget    ?? 0, actual: opIncome?.actual    ?? 0 },
+            netProfit:   { budget: netProfit?.budget   ?? 0, actual: netProfit?.actual   ?? 0 },
           }}
           hrPeriod1={{ label: p1Label, data: hrData1 }}
           hrPeriod2={{ label: p2Label, data: hrData2 }}
