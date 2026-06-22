@@ -291,7 +291,7 @@ export function filterPLDataByHRCategory(data: PLData): PLData {
 
 export function getCalcRow(
   data: PLData,
-  id: 'net_revenue' | 'gross_profit' | 'operating_income' | 'net_income',
+  id: 'net_revenue' | 'gross_profit' | 'net_income',
 ): PLCalcRowData | undefined {
   return data.calculatedRows.find(r => r.id === id)
 }

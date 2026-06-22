@@ -239,26 +239,18 @@ export const PL_SECTIONS: readonly PLSection[] = [
 
 export const PL_CALCULATED_ROWS: readonly PLCalculatedRow[] = [
   {
-    id:            'net_revenue',
-    label:         'NET REVENUE',
-    afterSectionId: 'gp_deductions',
+    id:             'gross_profit',
+    label:          'GROSS PROFIT',
+    afterSectionId: 'cost_of_goods',
     terms: [
       { sectionTotalId: 'total_gross_sales',   sign:  1 },
       { sectionTotalId: 'total_gp_deductions', sign: -1 },
+      { sectionTotalId: 'total_cogs',          sign: -1 },
     ],
   },
   {
-    id:            'gross_profit',
-    label:         'GROSS PROFIT',
-    afterSectionId: 'cost_of_goods',
-    terms: [
-      { sectionTotalId: 'net_revenue', sign:  1 },
-      { sectionTotalId: 'total_cogs',  sign: -1 },
-    ],
-  },
-  {
-    id:            'operating_income',
-    label:         'OPERATING INCOME',
+    id:             'net_revenue',
+    label:          'NET REVENUE',
     afterSectionId: 'operating_expenses',
     terms: [
       { sectionTotalId: 'gross_profit', sign:  1 },
@@ -266,12 +258,12 @@ export const PL_CALCULATED_ROWS: readonly PLCalculatedRow[] = [
     ],
   },
   {
-    id:            'net_income',
-    label:         'NET INCOME',
+    id:             'net_income',
+    label:          'NET INCOME',
     afterSectionId: 'capex',
     terms: [
-      { sectionTotalId: 'operating_income', sign:  1 },
-      { sectionTotalId: 'total_capex',      sign: -1 },
+      { sectionTotalId: 'net_revenue', sign:  1 },
+      { sectionTotalId: 'total_capex', sign: -1 },
     ],
   },
 ]

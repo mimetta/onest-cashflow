@@ -43,7 +43,7 @@ export default async function AdminDashboardPage({
     const latestData = monthsData[monthsData.length - 1]
     const revSection = latestData.sections.find(s => s.id === 'revenue_channel')
     const grossProfit = getCalcRow(latestData, 'gross_profit')
-    const opIncome    = getCalcRow(latestData, 'operating_income')
+    const opIncome    = getCalcRow(latestData, 'net_revenue')
     const netIncome   = getCalcRow(latestData, 'net_income')
     const months: MonthColumn[] = periods3.map((p, i) => ({
       year: p.year, month: p.month,
@@ -76,7 +76,7 @@ export default async function AdminDashboardPage({
   const [period1Data, period2Data] = await Promise.all([fetchPeriod(p1), fetchPeriod(p2)])
   const revSection  = period1Data.sections.find(s => s.id === 'revenue_channel')
   const grossProfit = getCalcRow(period1Data, 'gross_profit')
-  const opIncome    = getCalcRow(period1Data, 'operating_income')
+  const opIncome    = getCalcRow(period1Data, 'net_revenue')
   const netIncome   = getCalcRow(period1Data, 'net_income')
 
   return (

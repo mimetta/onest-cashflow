@@ -92,7 +92,7 @@ export default async function CeoDashboardPage({
 
     const revSection  = latestData.sections.find(s => s.id === 'revenue_channel')
     const grossProfit = getCalcRow(latestData, 'gross_profit')
-    const opIncome    = getCalcRow(latestData, 'operating_income')
+    const opIncome    = getCalcRow(latestData, 'net_revenue')
     const netIncome   = getCalcRow(latestData, 'net_income')
 
     const hrData1 = filterPLDataByHRCategory(latestData)
@@ -142,7 +142,7 @@ export default async function CeoDashboardPage({
 
   const revSection  = period1Data.sections.find(s => s.id === 'revenue_channel')
   const grossProfit = getCalcRow(period1Data, 'gross_profit')
-  const opIncome    = getCalcRow(period1Data, 'operating_income')
+  const opIncome    = getCalcRow(period1Data, 'net_revenue')
   const netIncome   = getCalcRow(period1Data, 'net_income')
   const hrData1     = filterPLDataByHRCategory(period1Data)
   const hrData2     = filterPLDataByHRCategory(period2Data)
