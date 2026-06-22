@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { useRef, useState } from 'react'
+import WideFormatImporter from './WideFormatImporter'
 
 interface ValidKey {
   lineItemId:   string
@@ -104,7 +105,7 @@ const TEMPLATE_ACTUAL =
   'Example Expense Line,OPS,Operating Expenses,Jun,2024,50000\n'
 
 export default function ImportClient({ validKeys }: Props) {
-  const [tab,      setTab]      = useState<'budget' | 'actual'>('budget')
+  const [tab,      setTab]      = useState<'budget' | 'actual' | 'wide'>('budget')
   const [rows,     setRows]     = useState<ParsedRow[]>([])
   const [dragging, setDragging] = useState(false)
   const [status,   setStatus]   = useState<{ type: 'success' | 'error'; msg: string } | null>(null)
@@ -205,20 +206,30 @@ export default function ImportClient({ validKeys }: Props) {
 
       {/* Tabs */}
       <div className="flex rounded-lg overflow-hidden border border-gray-200 w-fit">
-        {(['budget', 'actual'] as const).map(t => (
+        {([
+          { id: 'budget', label: 'Budget' },
+          { id: 'actual', label: 'Actual' },
+          { id: 'wide',   label: 'Wide Format' },
+        ] as const).map(t => (
           <button
-            key={t}
-            onClick={() => { setTab(t); setRows([]); setStatus(null) }}
+            key={t.id}
+            onClick={() => { setTab(t.id); setRows([]); setStatus(null) }}
             className={`px-5 py-2 text-sm font-medium transition-colors ${
-              tab === t
+              tab === t.id
                 ? 'bg-[#1e2a3a] text-white'
                 : 'bg-white text-gray-600 hover:bg-gray-50'
             }`}
           >
-            {t === 'budget' ? 'Budget' : 'Actual'}
+            {t.label}
           </button>
         ))}
       </div>
+
+      {/* Wide Format tab */}
+      {tab === 'wide' && <WideFormatImporter validKeys={validKeys} />}
+
+      {/* Budget / Actual narrow-format UI */}
+      {tab !== 'wide' && <>
 
       {/* Drop zone */}
       <div
@@ -315,6 +326,8 @@ export default function ImportClient({ validKeys }: Props) {
           </div>
         </div>
       )}
+
+      </>}
     </div>
   )
 }
