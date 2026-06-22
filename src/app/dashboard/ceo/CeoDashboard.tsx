@@ -4,14 +4,23 @@ import { Suspense, useState } from 'react'
 import type { PLData, MonthColumn } from '@/lib/pl-types'
 import type { PendingRow } from './page'
 import PLTable from '@/components/PLTable'
-import MonthRangeNavigator from '@/components/MonthRangeNavigator'
+import PeriodFilter from '@/components/PeriodFilter'
 import { approveSubmission, rejectSubmission } from './actions'
 
 function thb(n: number) { return `฿${Math.round(n).toLocaleString('en-US')}` }
 
-function KpiCard({ title, budget, actual, sub }: { title: string; budget: number; actual: number; sub?: string }) {
+type Accent = 'blue' | 'green' | 'amber' | 'dynamic'
+
+function KpiCard({ title, budget, actual, sub, accent }: {
+  title: string; budget: number; actual: number; sub?: string; accent?: Accent
+}) {
+  const borderCls = accent === 'blue'    ? 'border-l-blue-400'
+    : accent === 'green'   ? 'border-l-emerald-400'
+    : accent === 'amber'   ? 'border-l-amber-400'
+    : accent === 'dynamic' ? (budget >= 0 ? 'border-l-emerald-400' : 'border-l-red-500')
+    : 'border-l-gray-200'
   return (
-    <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
+    <div className={`bg-white rounded-xl border border-gray-200 border-l-4 shadow-sm p-5 ${borderCls}`}>
       <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{title}</p>
       <p className="mt-1 text-2xl font-bold text-gray-900 tabular-nums">{thb(budget)}</p>
       {actual !== 0 && (
@@ -90,16 +99,16 @@ export default function CeoDashboard({
             </button>
           </div>
         </div>
-        <Suspense><MonthRangeNavigator mode={mode} anchor={anchor} /></Suspense>
+        <Suspense><PeriodFilter mode={mode} anchor={anchor ?? ''} /></Suspense>
       </div>
 
       {activeTab === 'pl' && (
         <>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <KpiCard title="Total Revenue"    budget={revenue.budget}     actual={revenue.actual}     sub={periodLabel} />
-            <KpiCard title="Gross Profit"     budget={grossProfit.budget} actual={grossProfit.actual} sub={grossMargin} />
-            <KpiCard title="Operating Income" budget={opIncome.budget}    actual={opIncome.actual} />
-            <KpiCard title="Net Profit"       budget={netProfit.budget}   actual={netProfit.actual}   sub={netMargin} />
+            <KpiCard title="Total Revenue"    budget={revenue.budget}     actual={revenue.actual}     sub={periodLabel} accent="blue" />
+            <KpiCard title="Gross Profit"     budget={grossProfit.budget} actual={grossProfit.actual} sub={grossMargin}  accent="green" />
+            <KpiCard title="Operating Income" budget={opIncome.budget}    actual={opIncome.actual}                       accent="amber" />
+            <KpiCard title="Net Profit"       budget={netProfit.budget}   actual={netProfit.actual}   sub={netMargin}    accent="dynamic" />
           </div>
 
           {months ? (

@@ -1503,10 +1503,10 @@ export default function PLTable({
                   }`}
                   onClick={() => toggleSection(section.id)}
                 >
-                  <td className={`px-3 uppercase tracking-wider ${isSecondarySection ? 'py-2 text-[11px] font-semibold' : 'py-2.5 text-xs font-bold'}`}>
+                  <td className={`px-3 tracking-wide ${isSecondarySection ? 'py-2 text-[11px] font-semibold' : 'py-2.5 text-sm font-semibold'}`}>
                     <span className="mr-2 text-slate-300 text-[10px]">{isSectionOpen ? '▼' : '▶'}</span>
                     {section.title}
-                    {isSecondarySection && <span className="ml-2 text-slate-300 text-[9px] font-normal normal-case tracking-normal opacity-80">supplementary</span>}
+                    {isSecondarySection && <span className="ml-2 text-slate-300 text-[9px] font-normal tracking-normal opacity-80">supplementary</span>}
                   </td>
                   {(() => {
                     const hpy = isSecondarySection ? 'py-2' : 'py-2.5'

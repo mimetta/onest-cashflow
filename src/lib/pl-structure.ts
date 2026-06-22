@@ -45,7 +45,7 @@ export const PL_SECTIONS: readonly PLSection[] = [
   // ── 1. Revenue by Channel ──────────────────────────────────────────────────
   {
     id:         'revenue_channel',
-    title:      'SECTION 1 — REVENUE BY CHANNEL',
+    title:      'Section 1 — Revenue by Channel',
     totalLabel: 'TOTAL GROSS SALES',
     totalId:    'total_gross_sales',
     defaultCollapsed: true,
@@ -77,7 +77,7 @@ export const PL_SECTIONS: readonly PLSection[] = [
   // ── 2. Revenue by Product Category ────────────────────────────────────────
   {
     id:         'revenue_product',
-    title:      'SECTION 2 — REVENUE BY PRODUCT CATEGORY',
+    title:      'Section 2 — Revenue by Product Category',
     totalLabel: 'TOTAL PRODUCT REVENUE',
     totalId:    'total_product_revenue',
     note:       'Must reconcile with TOTAL GROSS SALES',
@@ -110,7 +110,7 @@ export const PL_SECTIONS: readonly PLSection[] = [
   // ── 3. GP Deductions ──────────────────────────────────────────────────────
   {
     id:         'gp_deductions',
-    title:      'SECTION 3 — GP DEDUCTIONS',
+    title:      'Section 3 — GP Deductions',
     totalLabel: 'TOTAL GP DEDUCTIONS',
     totalId:    'total_gp_deductions',
     defaultCollapsed: true,
@@ -126,7 +126,7 @@ export const PL_SECTIONS: readonly PLSection[] = [
   // ── 4. Cost of Goods ──────────────────────────────────────────────────────
   {
     id:         'cost_of_goods',
-    title:      'SECTION 4 — COST OF GOODS',
+    title:      'Section 4 — Cost of Goods',
     totalLabel: 'TOTAL COST OF GOODS',
     totalId:    'total_cogs',
     defaultCollapsed: true,
@@ -175,7 +175,7 @@ export const PL_SECTIONS: readonly PLSection[] = [
   // ── 5. Operating Expenses ─────────────────────────────────────────────────
   {
     id:         'operating_expenses',
-    title:      'SECTION 5 — OPERATING EXPENSES',
+    title:      'Section 5 — Operating Expenses',
     totalLabel: 'TOTAL OPERATING EXPENSES',
     totalId:    'total_opex',
     defaultCollapsed: true,
@@ -211,7 +211,7 @@ export const PL_SECTIONS: readonly PLSection[] = [
   // ── 6. CAPEX — 3 collapsible sub-groups ───────────────────────────────────
   {
     id:         'capex',
-    title:      'SECTION 6 — CAPEX',
+    title:      'Section 6 — CAPEX',
     totalLabel: 'TOTAL CAPEX',
     totalId:    'total_capex',
     defaultCollapsed: true,

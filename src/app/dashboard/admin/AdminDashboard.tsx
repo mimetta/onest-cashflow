@@ -4,13 +4,22 @@ import { useState, Suspense } from 'react'
 import Link from 'next/link'
 import type { PLData, MonthColumn } from '@/lib/pl-types'
 import PLTable from '@/components/PLTable'
-import MonthRangeNavigator from '@/components/MonthRangeNavigator'
+import PeriodFilter from '@/components/PeriodFilter'
 
 function thb(n: number) { return `฿${Math.round(Math.abs(n)).toLocaleString('en-US')}` }
 
-function KpiCard({ title, budget, actual, sub }: { title: string; budget: number; actual: number; sub?: string }) {
+type Accent = 'blue' | 'green' | 'amber' | 'dynamic'
+
+function KpiCard({ title, budget, actual, sub, accent }: {
+  title: string; budget: number; actual: number; sub?: string; accent?: Accent
+}) {
+  const borderCls = accent === 'blue'    ? 'border-l-blue-400'
+    : accent === 'green'   ? 'border-l-emerald-400'
+    : accent === 'amber'   ? 'border-l-amber-400'
+    : accent === 'dynamic' ? (budget >= 0 ? 'border-l-emerald-400' : 'border-l-red-500')
+    : 'border-l-gray-200'
   return (
-    <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
+    <div className={`bg-white rounded-xl border border-gray-200 border-l-4 shadow-sm p-5 ${borderCls}`}>
       <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{title}</p>
       <p className="mt-1 text-2xl font-bold text-gray-900 tabular-nums">{thb(budget)}</p>
       {actual !== 0 && (
@@ -356,40 +365,56 @@ export default function AdminDashboard({
       <div className="flex items-center justify-between flex-wrap gap-3">
         <h1 className="text-xl font-bold text-gray-900">Admin — P&amp;L</h1>
         <div className="flex items-center gap-3">
-          <Link
-            href="/dashboard/admin/settings"
-            className="px-3 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 border border-gray-200 rounded-lg hover:bg-white transition-colors"
-          >
-            Settings
-          </Link>
-          <Link
-            href="/dashboard/admin/line-items"
-            className="px-3 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 border border-gray-200 rounded-lg hover:bg-white transition-colors"
-          >
-            Line Items
-          </Link>
+          {/* Import Data — always visible */}
           <Link
             href="/dashboard/admin/import"
             className="px-3 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 border border-gray-200 rounded-lg hover:bg-white transition-colors"
           >
             Import Data
           </Link>
-          <Link
-            href="/dashboard/admin/users"
-            className="px-3 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 border border-gray-200 rounded-lg hover:bg-white transition-colors"
-          >
-            Manage Users
-          </Link>
-          <Suspense><MonthRangeNavigator mode={mode} anchor={anchor} /></Suspense>
+
+          {/* More actions dropdown */}
+          <div className="relative">
+            <button
+              onClick={() => setDrawer(d => d === null ? { lineItemId: '__menu__', lineItemName: '', loading: false, error: null, data: null, selectedMonth: null } : null)}
+              className="px-3 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 border border-gray-200 rounded-lg hover:bg-white transition-colors"
+              aria-label="More actions"
+            >
+              ···
+            </button>
+            {drawer?.lineItemId === '__menu__' && (
+              <>
+                <div className="fixed inset-0 z-30" onClick={() => setDrawer(null)} />
+                <div className="absolute right-0 top-full mt-1 bg-white rounded-xl border border-gray-200 shadow-lg py-1 min-w-[160px] z-40">
+                  {[
+                    { href: '/dashboard/admin/settings',  label: 'Settings' },
+                    { href: '/dashboard/admin/line-items', label: 'Line Items' },
+                    { href: '/dashboard/admin/users',      label: 'Manage Users' },
+                  ].map(item => (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      onClick={() => setDrawer(null)}
+                      className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                    >
+                      {item.label}
+                    </Link>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+
+          <Suspense><PeriodFilter mode={mode} anchor={anchor ?? ''} /></Suspense>
         </div>
       </div>
 
       {/* KPI cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <KpiCard title="Total Revenue"    budget={revenue.budget}     actual={revenue.actual}     sub={periodLabel} />
-        <KpiCard title="Gross Profit"     budget={grossProfit.budget} actual={grossProfit.actual} sub={grossMargin} />
-        <KpiCard title="Operating Income" budget={opIncome.budget}    actual={opIncome.actual} />
-        <KpiCard title="Net Profit"       budget={netProfit.budget}   actual={netProfit.actual}   sub={netMargin} />
+        <KpiCard title="Total Revenue"    budget={revenue.budget}     actual={revenue.actual}     sub={periodLabel} accent="blue" />
+        <KpiCard title="Gross Profit"     budget={grossProfit.budget} actual={grossProfit.actual} sub={grossMargin}  accent="green" />
+        <KpiCard title="Operating Income" budget={opIncome.budget}    actual={opIncome.actual}                       accent="amber" />
+        <KpiCard title="Net Profit"       budget={netProfit.budget}   actual={netProfit.actual}   sub={netMargin}    accent="dynamic" />
       </div>
 
       {/* Editable P&L table */}
