@@ -29,8 +29,14 @@ function norm(s: string): string {
   return s.trim().toLowerCase()
 }
 
-function buildLookup(lineItems: any[]): Map<string, Resolved> {
-  const m = new Map<string, Resolved>()
+function buildLookup(lineItems: any[]): {
+  full:    Map<string, Resolved>
+  byName:  Map<string, Resolved>
+  dbNames: [string, Resolved][]
+} {
+  const full    = new Map<string, Resolved>()
+  const byName  = new Map<string, Resolved>()
+  const dbNames: [string, Resolved][] = []
   for (const li of lineItems) {
     const cat  = li.categories
     const dept = cat?.departments
@@ -38,10 +44,20 @@ function buildLookup(lineItems: any[]): Map<string, Resolved> {
     const resolved: Resolved = { lineItemId: li.id, deptId: dept.id }
     const namePart = norm(li.name)
     const catPart  = norm(cat.name)
-    m.set(`${namePart}|${norm(dept.code)}|${catPart}`,      resolved)
-    m.set(`${namePart}|${norm(dept.full_name)}|${catPart}`, resolved)
+    full.set(`${namePart}|${norm(dept.code)}|${catPart}`,      resolved)
+    full.set(`${namePart}|${norm(dept.full_name)}|${catPart}`, resolved)
+    if (!byName.has(namePart)) byName.set(namePart, resolved)
+    dbNames.push([namePart, resolved])
   }
-  return m
+  return { full, byName, dbNames }
+}
+
+function partialMatch(csvName: string, dbNames: [string, Resolved][]): Resolved | undefined {
+  const csv = norm(csvName)
+  for (const [dbName, resolved] of dbNames) {
+    if (dbName.startsWith(csv) || csv.startsWith(dbName)) return resolved
+  }
+  return undefined
 }
 
 export async function POST(req: NextRequest) {
@@ -76,7 +92,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `line_items fetch: ${liError.message}` }, { status: 500 })
   }
 
-  const lookup = buildLookup(lineItemsData ?? [])
+  const { full: lookup, byName: lookupByName, dbNames: lookupDbNames } = buildLookup(lineItemsData ?? [])
   console.log(`[import] lookup built — ${lookup.size} keys from ${(lineItemsData ?? []).length} line items`)
 
   const now      = new Date().toISOString()
@@ -94,6 +110,8 @@ export async function POST(req: NextRequest) {
 
     const key      = `${norm(r.name)}|${norm(r.dept)}|${norm(r.category)}`
     const resolved = lookup.get(key)
+      ?? lookupByName.get(norm(r.name))
+      ?? partialMatch(r.name, lookupDbNames)
     if (!resolved) {
       const msg = `No match for name="${r.name}" dept="${r.dept}" category="${r.category}"`
       console.error(`[import] row ${i}: ${msg}`)

@@ -26,11 +26,13 @@ interface Resolved { lineItemId: string; deptId: string }
 function norm(s: string) { return s.trim().toLowerCase() }
 
 function buildLookups(lineItems: any[]): {
-  full: Map<string, Resolved>
-  byName: Map<string, Resolved>
+  full:    Map<string, Resolved>
+  byName:  Map<string, Resolved>
+  dbNames: [string, Resolved][]   // for partial starts-with matching
 } {
-  const full   = new Map<string, Resolved>()
-  const byName = new Map<string, Resolved>()  // first match per name
+  const full    = new Map<string, Resolved>()
+  const byName  = new Map<string, Resolved>()
+  const dbNames: [string, Resolved][] = []
 
   for (const li of lineItems) {
     const cat  = li.categories
@@ -41,10 +43,19 @@ function buildLookups(lineItems: any[]): {
     const catPart  = norm(cat.name)
     full.set(`${namePart}|${norm(dept.code)}|${catPart}`,      resolved)
     full.set(`${namePart}|${norm(dept.full_name)}|${catPart}`, resolved)
-    // name-only fallback (keeps first match)
     if (!byName.has(namePart)) byName.set(namePart, resolved)
+    dbNames.push([namePart, resolved])
   }
-  return { full, byName }
+  return { full, byName, dbNames }
+}
+
+// Partial match: DB name starts with CSV name OR CSV name starts with DB name
+function partialMatch(csvName: string, dbNames: [string, Resolved][]): Resolved | undefined {
+  const csv = norm(csvName)
+  for (const [dbName, resolved] of dbNames) {
+    if (dbName.startsWith(csv) || csv.startsWith(dbName)) return resolved
+  }
+  return undefined
 }
 
 export async function POST(req: NextRequest) {
@@ -79,7 +90,7 @@ export async function POST(req: NextRequest) {
   `)
   if (liError) return NextResponse.json({ error: `line_items fetch: ${liError.message}` }, { status: 500 })
 
-  const { full, byName } = buildLookups(lineItemsData ?? [])
+  const { full, byName, dbNames } = buildLookups(lineItemsData ?? [])
 
   const now           = new Date().toISOString()
   let budget_imported = 0
@@ -93,7 +104,9 @@ export async function POST(req: NextRequest) {
     if (!r.line_item_name || !r.month || !r.year) { skipped++; continue }
 
     const fullKey  = `${norm(r.line_item_name)}|${norm(r.department)}|${norm(r.category)}`
-    const resolved = full.get(fullKey) ?? byName.get(norm(r.line_item_name))
+    const resolved = full.get(fullKey)
+      ?? byName.get(norm(r.line_item_name))
+      ?? partialMatch(r.line_item_name, dbNames)
     if (!resolved) {
       errors.push({ row: i + 1, error: `No match for "${r.line_item_name}"` })
       skipped++

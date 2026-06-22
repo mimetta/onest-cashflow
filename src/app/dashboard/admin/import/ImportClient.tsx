@@ -46,20 +46,41 @@ function parseCsv(text: string): string[][] {
 
 function n(s: string) { return s.trim().toLowerCase() }
 
-function buildLookup(validKeys: ValidKey[]): Map<string, { lineItemId: string; deptId: string }> {
-  const m = new Map<string, { lineItemId: string; deptId: string }>()
+type Resolved = { lineItemId: string; deptId: string }
+
+function buildLookup(validKeys: ValidKey[]): {
+  full:    Map<string, Resolved>
+  byName:  Map<string, Resolved>
+  dbNames: [string, Resolved][]
+} {
+  const full    = new Map<string, Resolved>()
+  const byName  = new Map<string, Resolved>()
+  const dbNames: [string, Resolved][] = []
   for (const k of validKeys) {
     const resolved = { lineItemId: k.lineItemId, deptId: k.deptId }
     const namePart = n(k.lineItemName)
     const catPart  = n(k.categoryName)
-    // Register under both dept code and dept full_name so either matches
-    m.set(`${namePart}|${n(k.deptCode)}|${catPart}`,      resolved)
-    m.set(`${namePart}|${n(k.deptFullName)}|${catPart}`,  resolved)
+    full.set(`${namePart}|${n(k.deptCode)}|${catPart}`,     resolved)
+    full.set(`${namePart}|${n(k.deptFullName)}|${catPart}`, resolved)
+    if (!byName.has(namePart)) byName.set(namePart, resolved)
+    dbNames.push([namePart, resolved])
   }
-  return m
+  return { full, byName, dbNames }
 }
 
-function parseRows(lines: string[][], lookup: Map<string, { lineItemId: string; deptId: string }>): ParsedRow[] {
+function partialMatch(csvName: string, dbNames: [string, Resolved][]): Resolved | undefined {
+  const csv = n(csvName)
+  for (const [dbName, resolved] of dbNames) {
+    if (dbName.startsWith(csv) || csv.startsWith(dbName)) return resolved
+  }
+  return undefined
+}
+
+function parseRows(
+  lines: string[][],
+  lookup: { full: Map<string, Resolved>; byName: Map<string, Resolved>; dbNames: [string, Resolved][] },
+): ParsedRow[] {
+  const { full, byName, dbNames } = lookup
   // skip header if present
   const start = lines[0]?.[0]?.toLowerCase().startsWith('line_item') ? 1 : 0
   return lines.slice(start).filter(r => r.some(c => c)).map((cols, i) => {
@@ -83,7 +104,9 @@ function parseRows(lines: string[][], lookup: Map<string, { lineItemId: string; 
     else if (isNaN(amount)) error = 'Invalid amount'
 
     const key     = `${n(name)}|${n(dept)}|${n(category)}`
-    const matched = !error ? lookup.get(key) : undefined
+    const matched = !error
+      ? (full.get(key) ?? byName.get(n(name)) ?? partialMatch(name, dbNames))
+      : undefined
     if (!error && !matched) error = `No match for "${name}" / ${dept} / ${category}`
 
     return {
