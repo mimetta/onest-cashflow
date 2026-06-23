@@ -368,6 +368,12 @@ export default function PLTable({
 
   const [ownerOptions,  setOwnerOptions]  = useState<OwnerOptions>({ people: [], depts: [] })
   const [fgProduction,  setFgProduction]  = useState<Record<string, number>>({})
+  const [saveError,     setSaveError]     = useState<string | null>(null)
+
+  function handleSaveError(msg: string) {
+    setSaveError(msg)
+    setTimeout(() => setSaveError(null), 5000)
+  }
 
   useEffect(() => {
     if (!isAdmin) return
@@ -491,8 +497,10 @@ export default function PLTable({
         body: JSON.stringify({ line_item_id: li.lineItemId, year: colYear, month: colMonth, field, value: v }),
       })
       if (!r.ok) {
-        const d = await r.json()
-        throw new Error(d.error ?? 'Save failed')
+        const d = await r.json().catch(() => ({}))
+        const msg = (d.error as string | undefined) ?? `Save failed (HTTP ${r.status})`
+        handleSaveError(msg)
+        throw new Error(msg)
       }
     }
   }
@@ -1507,6 +1515,14 @@ export default function PLTable({
   if (!refData) return null
 
   return (
+    <>
+    {saveError && (
+      <div className="fixed bottom-5 right-5 z-50 flex items-start gap-2.5 bg-red-600 text-white text-sm px-4 py-3 rounded-lg shadow-xl max-w-sm">
+        <span className="font-semibold shrink-0">Save failed:</span>
+        <span className="break-words">{saveError}</span>
+        <button onClick={() => setSaveError(null)} className="ml-auto shrink-0 opacity-70 hover:opacity-100 text-base leading-none">✕</button>
+      </div>
+    )}
     <div className="overflow-x-auto rounded-lg border border-gray-200 shadow-sm">
       <table className="min-w-full border-collapse text-sm">
         <colgroup>
@@ -1701,5 +1717,6 @@ export default function PLTable({
         </tbody>
       </table>
     </div>
+    </>
   )
 }
