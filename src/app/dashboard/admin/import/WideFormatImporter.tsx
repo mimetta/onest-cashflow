@@ -155,7 +155,7 @@ function parseWideFormat(rows: string[][], monthDefs: MonthColDef[], nameSet: Se
   for (let i = 4; i < rows.length; i++) {
     const cols = rows[i]
     const colA = (cols[0] ?? '').trim()
-    const colB = (cols[1] ?? '').trim()
+    const colB = (cols[1] ?? '').replace(/\*/g, '').trim()
 
     if (rowIsSection(colA, colB, cols, monthDefs)) {
       // Use this row to update dept/category context
