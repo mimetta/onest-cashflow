@@ -146,7 +146,8 @@ export default function AdminDashboard({
     ? months[months.length - 1].label
     : (period1?.label ?? '')
 
-  const [drawer, setDrawer] = useState<Drawer | null>(null)
+  const [drawer,   setDrawer]   = useState<Drawer | null>(null)
+  const [menuOpen, setMenuOpen] = useState(false)
 
   async function handleRowClick(lineItemId: string, lineItemName: string) {
     setDrawer({ lineItemId, lineItemName, loading: true, error: null, data: null, selectedMonth: null })
@@ -397,25 +398,25 @@ export default function AdminDashboard({
           {/* More actions dropdown */}
           <div className="relative">
             <button
-              onClick={() => setDrawer(d => d === null ? { lineItemId: '__menu__', lineItemName: '', loading: false, error: null, data: null, selectedMonth: null } : null)}
+              onClick={e => { e.stopPropagation(); setMenuOpen(v => !v) }}
               className="px-3 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 border border-gray-200 rounded-lg hover:bg-white transition-colors"
               aria-label="More actions"
             >
               ···
             </button>
-            {drawer?.lineItemId === '__menu__' && (
+            {menuOpen && (
               <>
-                <div className="fixed inset-0 z-30" onClick={() => setDrawer(null)} />
+                <div className="fixed inset-0 z-30" onClick={() => setMenuOpen(false)} />
                 <div className="absolute right-0 top-full mt-1 bg-white rounded-xl border border-gray-200 shadow-lg py-1 min-w-[160px] z-40">
                   {[
-                    { href: '/dashboard/admin/settings',  label: 'Settings' },
+                    { href: '/dashboard/admin/settings',   label: 'Settings' },
                     { href: '/dashboard/admin/line-items', label: 'Line Items' },
                     { href: '/dashboard/admin/users',      label: 'Manage Users' },
                   ].map(item => (
                     <Link
                       key={item.href}
                       href={item.href}
-                      onClick={() => setDrawer(null)}
+                      onClick={() => setMenuOpen(false)}
                       className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
                     >
                       {item.label}
