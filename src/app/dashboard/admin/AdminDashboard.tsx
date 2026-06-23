@@ -6,26 +6,43 @@ import type { PLData, MonthColumn } from '@/lib/pl-types'
 import PLTable from '@/components/PLTable'
 import PeriodFilter from '@/components/PeriodFilter'
 
+function fmtAmt(n: number) {
+  if (n === 0) return '—'
+  return `${n < 0 ? '-' : ''}฿${Math.round(Math.abs(n)).toLocaleString('en-US')}`
+}
+
 function thb(n: number) { return `฿${Math.round(Math.abs(n)).toLocaleString('en-US')}` }
 
 type Accent = 'blue' | 'green' | 'amber' | 'dynamic'
 
-function KpiCard({ title, budget, actual, sub, accent }: {
-  title: string; budget: number; actual: number; sub?: string; accent?: Accent
+function KpiCard({ title, budget, actual, sub, accent, isExpense = false }: {
+  title: string; budget: number; actual: number; sub?: string; accent?: Accent; isExpense?: boolean
 }) {
+  const hasActual = actual !== 0
+  const isGood    = hasActual
+    ? (isExpense ? actual <= budget : actual >= budget)
+    : budget >= 0
   const borderCls = accent === 'blue'    ? 'border-l-blue-400'
     : accent === 'green'   ? 'border-l-emerald-400'
     : accent === 'amber'   ? 'border-l-amber-400'
-    : accent === 'dynamic' ? (budget >= 0 ? 'border-l-emerald-400' : 'border-l-red-500')
+    : accent === 'dynamic' ? (isGood ? 'border-l-emerald-400' : 'border-l-red-500')
     : 'border-l-gray-200'
+  const numCls = (hasActual && budget !== 0)
+    ? (isGood ? 'text-emerald-600' : 'text-red-600')
+    : 'text-gray-900'
   return (
     <div className={`bg-white rounded-xl border border-gray-200 border-l-4 shadow-sm p-5 ${borderCls}`}>
       <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{title}</p>
-      <p className="mt-1 text-2xl font-bold text-gray-900 tabular-nums">{thb(budget)}</p>
-      {actual !== 0 && (
-        <p className="mt-0.5 text-sm font-medium text-gray-500 tabular-nums">
-          {thb(actual)} <span className="text-xs font-normal text-gray-400">actual</span>
-        </p>
+      {hasActual ? (
+        <>
+          <p className={`mt-1 text-2xl font-bold tabular-nums ${numCls}`}>{fmtAmt(actual)}</p>
+          {budget !== 0 && <p className="mt-0.5 text-sm text-gray-400 tabular-nums">Goal: {fmtAmt(budget)}</p>}
+        </>
+      ) : (
+        <>
+          <p className="mt-1 text-2xl font-bold text-gray-900 tabular-nums">{budget !== 0 ? fmtAmt(budget) : '—'}</p>
+          {budget !== 0 && <p className="mt-0.5 text-xs text-gray-400">No actual data</p>}
+        </>
       )}
       {sub && <p className="mt-0.5 text-xs text-gray-400">{sub}</p>}
     </div>
@@ -99,12 +116,13 @@ function dotCls(status: string, isCurrent: boolean): string {
 // ── Main component ─────────────────────────────────────────────────────────────
 
 interface Props {
-  mode:        string
-  anchor?:     string
-  months?:     MonthColumn[]
-  period1?:    { label: string; data: PLData }
-  period2?:    { label: string; data: PLData }
-  deltaLabel?: string
+  mode:          string
+  anchor?:       string
+  months?:       MonthColumn[]
+  period1?:      { label: string; data: PLData }
+  period2?:      { label: string; data: PLData }
+  deltaLabel?:   string
+  deltaSubtitle?: string
   summaryCards: {
     revenue:     { budget: number; actual: number }
     grossProfit: { budget: number; actual: number }
@@ -115,11 +133,14 @@ interface Props {
 }
 
 export default function AdminDashboard({
-  mode, anchor = '', months, period1, period2, deltaLabel, summaryCards,
+  mode, anchor = '', months, period1, period2, deltaLabel, deltaSubtitle, summaryCards,
 }: Props) {
   const { revenue, grossProfit, opIncome, netProfit } = summaryCards
-  const grossMargin = revenue.budget > 0 ? `${((grossProfit.budget / revenue.budget) * 100).toFixed(1)}% margin` : undefined
-  const netMargin   = revenue.budget > 0 ? `${((netProfit.budget  / revenue.budget) * 100).toFixed(1)}% net margin` : undefined
+  const revAmt  = revenue.actual   || revenue.budget
+  const gpAmt   = grossProfit.actual || grossProfit.budget
+  const npAmt   = netProfit.actual   || netProfit.budget
+  const grossMargin = revAmt > 0 ? `${((gpAmt / revAmt) * 100).toFixed(1)}% margin` : undefined
+  const netMargin   = revAmt > 0 ? `${((npAmt / revAmt) * 100).toFixed(1)}% net margin` : undefined
 
   const periodLabel = months
     ? months[months.length - 1].label
@@ -419,9 +440,20 @@ export default function AdminDashboard({
 
       {/* Editable P&L table */}
       {months ? (
-        <PLTable months={months} role="admin" onRowClick={handleRowClick} />
+        <PLTable
+          months={months}
+          deltaLabel={mode === 'quarterly' ? 'QoQ Δ%' : 'MoM Δ%'}
+          role="admin"
+          onRowClick={handleRowClick}
+        />
       ) : period1 ? (
-        <PLTable period1={period1} period2={period2} deltaLabel={deltaLabel} role="admin" onRowClick={handleRowClick} />
+        <PLTable
+          period1={period1} period2={period2}
+          deltaLabel={deltaLabel}
+          deltaSubtitle={deltaSubtitle}
+          role="admin"
+          onRowClick={handleRowClick}
+        />
       ) : null}
 
       {/* History slide-over */}

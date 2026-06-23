@@ -142,14 +142,19 @@ export default async function CeoDashboardPage({
 
   // ── Quarterly view ────────────────────────────────────────────────────────────
   if (mode === 'quarterly') {
-    const yr = parseInt(anchor.split('-')[0])
+    const [ay, am] = anchor.split('-').map(Number)
+    const yr   = ay
+    const qIdx = am <= 3 ? 0 : am <= 6 ? 1 : am <= 9 ? 2 : 3
     const [q1,q2,q3,q4] = await Promise.all([
       getPLDataAggregated([{year:yr,month:1},{year:yr,month:2},{year:yr,month:3}]),
       getPLDataAggregated([{year:yr,month:4},{year:yr,month:5},{year:yr,month:6}]),
       getPLDataAggregated([{year:yr,month:7},{year:yr,month:8},{year:yr,month:9}]),
       getPLDataAggregated([{year:yr,month:10},{year:yr,month:11},{year:yr,month:12}]),
     ])
-    const kpiData = lastWithData([q1,q2,q3,q4])
+    const allQ    = [q1,q2,q3,q4]
+    const kpiData = allQ[qIdx].sections.some(s => s.total.budget > 0)
+      ? allQ[qIdx]
+      : lastWithData(allQ)
     const hrD1    = filterPLDataByHRCategory(kpiData)
     const months: MonthColumn[] = [
       { year: yr, month: 1,  label: `Q1 ${yr}`, data: q1 },
@@ -157,13 +162,15 @@ export default async function CeoDashboardPage({
       { year: yr, month: 7,  label: `Q3 ${yr}`, data: q3 },
       { year: yr, month: 10, label: `Q4 ${yr}`, data: q4 },
     ]
+    const qLabels = ['Q1','Q2','Q3','Q4']
     const hrBudget = hrD1.sections.reduce((sum,s)=>sum+s.total.budget, 0)
     const hrActual = hrD1.sections.reduce((sum,s)=>sum+s.total.actual, 0)
+    const prevQ    = qIdx > 0 ? qIdx - 1 : 0
     return shell(
       <CeoDashboard mode={mode} anchor={anchor} months={months}
         summaryCards={kpiFrom(kpiData)}
-        hrPeriod1={{ label: `Q4 ${yr}`, data: filterPLDataByHRCategory(q4) }}
-        hrPeriod2={{ label: `Q3 ${yr}`, data: filterPLDataByHRCategory(q3) }}
+        hrPeriod1={{ label: `${qLabels[qIdx]} ${yr}`, data: filterPLDataByHRCategory(allQ[qIdx]) }}
+        hrPeriod2={{ label: `${qLabels[prevQ]} ${yr}`, data: filterPLDataByHRCategory(allQ[prevQ]) }}
         hrKpis={{ budget: hrBudget, actual: hrActual, revenue: kpiFrom(kpiData).revenue.actual }}
         pendingSubmissions={pendingSubmissions} />
     )
@@ -185,6 +192,7 @@ export default async function CeoDashboardPage({
         period1={{ label: `${yr}`, data: period1Data }}
         period2={{ label: `${yr-1}`, data: period2Data }}
         deltaLabel="YoY Δ%"
+        deltaSubtitle={`${yr} vs ${yr - 1}`}
         summaryCards={kpiFrom(period1Data)}
         hrPeriod1={{ label: `${yr}`, data: hrD1 }}
         hrPeriod2={{ label: `${yr-1}`, data: hrD2 }}
@@ -194,7 +202,8 @@ export default async function CeoDashboardPage({
   }
 
   // ── YoY / QoQ comparison modes ────────────────────────────────────────────────
-  const { p1, p2, p1Label, p2Label, deltaLabel } = getComparisonPeriods(mode, year, month)
+  const [ay, am] = anchor.split('-').map(Number)
+  const { p1, p2, p1Label, p2Label, deltaLabel } = getComparisonPeriods(mode, ay || year, am || month)
   const [period1Data, period2Data] = await Promise.all([fetchPeriod(p1), fetchPeriod(p2)])
   const hrD1     = filterPLDataByHRCategory(period1Data)
   const hrD2     = filterPLDataByHRCategory(period2Data)
@@ -205,6 +214,7 @@ export default async function CeoDashboardPage({
       period1={{ label: p1Label, data: period1Data }}
       period2={{ label: p2Label, data: period2Data }}
       deltaLabel={deltaLabel}
+      deltaSubtitle={`${p1Label} vs ${p2Label}`}
       summaryCards={kpiFrom(period1Data)}
       hrPeriod1={{ label: p1Label, data: hrD1 }}
       hrPeriod2={{ label: p2Label, data: hrD2 }}

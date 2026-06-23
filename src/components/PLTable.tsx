@@ -321,6 +321,7 @@ export interface PLTableProps {
   period1?:            { label: string; data: PLData }
   period2?:            { label: string; data: PLData }
   deltaLabel?:         string
+  deltaSubtitle?:      string
   role?:               string
   onRowClick?:         (lineItemId: string, lineItemName: string) => void
   showCalculatedRows?: boolean
@@ -330,7 +331,7 @@ export interface PLTableProps {
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function PLTable({
-  months, period1, period2, deltaLabel = 'Δ%',
+  months, period1, period2, deltaLabel = 'Δ%', deltaSubtitle,
   role, onRowClick,
   showCalculatedRows = true,
   defaultExpanded,
@@ -410,9 +411,10 @@ export default function PLTable({
     return months.map(mc => buildMonthLookup(mc.data))
   }, [isMultiMonth, months])
 
-  const mmN    = months?.length ?? 0
-  const mmLast = Math.max(0, mmN - 1)
-  const mmPrev = Math.max(0, mmN - 2)
+  const mmN        = months?.length ?? 0
+  const mmLast     = Math.max(0, mmN - 1)
+  const mmPrev     = Math.max(0, mmN - 2)
+  const momSubtitle = mmN >= 2 ? `${months![mmN-1].label} vs ${months![mmN-2].label}` : undefined
 
   const cogsDeptId = useMemo(() => {
     return refData?.sections
@@ -1424,7 +1426,8 @@ export default function PLTable({
                 ))}
                 {mmN >= 2 && (
                   <th rowSpan={2} className="px-3 py-2 text-center text-xs font-semibold uppercase tracking-wider border-b border-l border-slate-600 align-bottom">
-                    MoM Δ%
+                    <div>{deltaLabel}</div>
+                    {momSubtitle && <div className="text-[9px] font-normal normal-case tracking-normal text-slate-400 mt-0.5">{momSubtitle}</div>}
                   </th>
                 )}
               </tr>
@@ -1456,7 +1459,8 @@ export default function PLTable({
                       {period2!.label}
                     </th>
                     <th rowSpan={2} className="px-3 py-2 text-center text-xs font-semibold uppercase tracking-wider border-b border-l border-slate-600 align-bottom">
-                      {deltaLabel}
+                      <div>{deltaLabel}</div>
+                      {deltaSubtitle && <div className="text-[9px] font-normal normal-case tracking-normal text-slate-400 mt-0.5">{deltaSubtitle}</div>}
                     </th>
                   </>
                 )}
@@ -1481,7 +1485,7 @@ export default function PLTable({
           {refData.sections.map(section => {
             if (section.id === 'cogm_schedule') return renderCogmSchedule(section)
             const hasItems      = section.groups.some(g => g.lineItems.length > 0)
-            if (!hasItems) return null
+            if (!hasItems && section.id !== 'capex') return null
             const isSectionOpen = collapse.sections[section.id] ?? false
             const isOpex        = section.id === OPEX_ID
             const nonEmpty      = section.groups.filter(g => g.lineItems.length > 0)

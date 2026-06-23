@@ -83,22 +83,28 @@ export default async function AdminDashboardPage({
 
   // ── Quarterly view — all 4 quarters of selected year ─────────────────────────
   if (mode === 'quarterly') {
-    const yr = parseInt(anchor.split('-')[0])
+    const [ay, am] = anchor.split('-').map(Number)
+    const yr   = ay
+    const qIdx = am <= 3 ? 0 : am <= 6 ? 1 : am <= 9 ? 2 : 3
     const [q1, q2, q3, q4] = await Promise.all([
       getPLDataAggregated([{year:yr,month:1},{year:yr,month:2},{year:yr,month:3}]),
       getPLDataAggregated([{year:yr,month:4},{year:yr,month:5},{year:yr,month:6}]),
       getPLDataAggregated([{year:yr,month:7},{year:yr,month:8},{year:yr,month:9}]),
       getPLDataAggregated([{year:yr,month:10},{year:yr,month:11},{year:yr,month:12}]),
     ])
+    const allQ   = [q1, q2, q3, q4]
     const months: MonthColumn[] = [
       { year: yr, month: 1,  label: `Q1 ${yr}`, data: q1 },
       { year: yr, month: 4,  label: `Q2 ${yr}`, data: q2 },
       { year: yr, month: 7,  label: `Q3 ${yr}`, data: q3 },
       { year: yr, month: 10, label: `Q4 ${yr}`, data: q4 },
     ]
+    const kpiData = allQ[qIdx].sections.some(s => s.total.budget > 0)
+      ? allQ[qIdx]
+      : lastWithData(allQ)
     return wrap(
       <AdminDashboard mode={mode} anchor={anchor} months={months}
-        summaryCards={kpiFrom(lastWithData([q1,q2,q3,q4]))} userId={user.id} />,
+        summaryCards={kpiFrom(kpiData)} userId={user.id} />,
       user.name ?? user.email, user.role as Role,
     )
   }
@@ -117,19 +123,22 @@ export default async function AdminDashboardPage({
         period1={{ label: `${yr}`, data: period1Data }}
         period2={{ label: `${yr-1}`, data: period2Data }}
         deltaLabel="YoY Δ%"
+        deltaSubtitle={`${yr} vs ${yr - 1}`}
         summaryCards={kpiFrom(period1Data)} userId={user.id} />,
       user.name ?? user.email, user.role as Role,
     )
   }
 
   // ── YoY / QoQ comparison modes ────────────────────────────────────────────────
-  const { p1, p2, p1Label, p2Label, deltaLabel } = getComparisonPeriods(mode, year, month)
+  const [ay, am] = anchor.split('-').map(Number)
+  const { p1, p2, p1Label, p2Label, deltaLabel } = getComparisonPeriods(mode, ay || year, am || month)
   const [period1Data, period2Data] = await Promise.all([fetchPeriod(p1), fetchPeriod(p2)])
   return wrap(
     <AdminDashboard mode={mode} anchor={anchor}
       period1={{ label: p1Label, data: period1Data }}
       period2={{ label: p2Label, data: period2Data }}
       deltaLabel={deltaLabel}
+      deltaSubtitle={`${p1Label} vs ${p2Label}`}
       summaryCards={kpiFrom(period1Data)} userId={user.id} />,
     user.name ?? user.email, user.role as Role,
   )
