@@ -34,14 +34,23 @@ export type PLLineItemRow = {
   ownerName: string | null          // line_items.owner_name — takes priority over categoryOwnerName
 } & Amounts
 
+export type PLCapexSubGroup = {
+  name:       string
+  categoryId: string
+  ownerName:  string | null
+  lineItems:  PLLineItemRow[]
+  subtotal:   Amounts
+}
+
 export type PLGroupData = {
   deptCode: string
   deptFullName: string
   departmentId: string
   subtotalLabel: string
-  lineItems: PLLineItemRow[]
+  lineItems: PLLineItemRow[]   // for nested CAPEX groups: flattened from all subGroups
   subtotal: Amounts
   ownerName: string | null
+  capexSubGroups?: PLCapexSubGroup[]  // present only for CAPEX nested groups
 }
 
 export type PLSectionData = {

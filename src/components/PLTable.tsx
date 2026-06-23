@@ -710,6 +710,64 @@ export default function PLTable({
     )
   }
 
+  // ── CAPEX nested-group renderer (comparison mode) ─────────────────────────
+
+  function renderCapexNestedGroupCmp(group: PLGroupData, section: PLSectionData) {
+    const isDeptExpanded = collapse.depts[group.departmentId] ?? false
+    const gsub   = effGroupCmp(group)
+    const p2gsub = p2
+      ? group.lineItems.reduce((acc: Amounts, li) => addAmounts(acc, p2.items[li.lineItemId] ?? ZERO), ZERO)
+      : ZERO
+    return (
+      <Fragment key={group.departmentId}>
+        <tr className="bg-gray-100 cursor-pointer hover:bg-gray-200 transition-colors select-none"
+            onClick={() => toggleDept(group.departmentId)}>
+          <td className="pl-4 pr-3 py-2 text-[13px] font-medium text-gray-700">
+            <span className="mr-2 text-gray-400 text-[10px]">{isDeptExpanded ? '▼' : '▶'}</span>
+            {group.deptFullName}
+          </td>
+          <OwnerCell py="py-2" />
+          <PCols a={gsub} gb={p1gb} ga={p1ga} py="py-2" />
+          {hasPeriod2 && (
+            <>
+              <PCols a={p2gsub} gb={p2!.grossBudget} ga={p2!.grossActual} py="py-2" />
+              <DeltaCell p1={gsub.actual} p2={p2gsub.actual} revCtx={false} py="py-2" />
+            </>
+          )}
+        </tr>
+        {isDeptExpanded && group.capexSubGroups!.map(sg => {
+          const catKey        = `${group.departmentId}|${sg.name}`
+          const isCatExpanded = collapse.categories[catKey] ?? false
+          const catTotal      = sg.lineItems.reduce((acc: Amounts, li) => addAmounts(acc, effLICmp(li)), ZERO)
+          const catP2Total    = p2
+            ? sg.lineItems.reduce((acc: Amounts, li) => addAmounts(acc, p2.items[li.lineItemId] ?? ZERO), ZERO)
+            : ZERO
+          return (
+            <Fragment key={catKey}>
+              <tr className="bg-white cursor-pointer hover:bg-gray-50 transition-colors select-none"
+                  style={{ borderLeft: '2px solid #d1d5db' }}
+                  onClick={() => toggleCategory(catKey)}>
+                <td className="pl-[34px] pr-3 py-1.5 text-xs font-medium text-gray-500">
+                  <span className="mr-2 text-gray-400 text-[10px]">{isCatExpanded ? '▼' : '▶'}</span>
+                  {sg.name}
+                </td>
+                <OwnerCell value={sg.ownerName} type="category" id={sg.categoryId} isEditable={false} suggestions={ownerOptions} />
+                <PCols a={catTotal} gb={p1gb} ga={p1ga} />
+                {hasPeriod2 && (
+                  <>
+                    <PCols a={catP2Total} gb={p2!.grossBudget} ga={p2!.grossActual} />
+                    <DeltaCell p1={catTotal.actual} p2={catP2Total.actual} revCtx={false} />
+                  </>
+                )}
+              </tr>
+              {isCatExpanded && sg.lineItems.map(li => renderLineItemCmp(li, group, section, true))}
+            </Fragment>
+          )
+        })}
+      </Fragment>
+    )
+  }
+
   // ── Multi-month renderers ─────────────────────────────────────────────────
 
   function renderLineItemMM(
@@ -930,6 +988,76 @@ export default function PLTable({
                 })()}
               </tr>
               {isCatExpanded && catItems.map(li => renderLineItemMM(li, group, section, true))}
+            </Fragment>
+          )
+        })}
+      </Fragment>
+    )
+  }
+
+  // ── CAPEX nested-group renderer (multi-month mode) ───────────────────────
+
+  function renderCapexNestedGroupMM(group: PLGroupData, section: PLSectionData) {
+    const isDeptExpanded = collapse.depts[group.departmentId] ?? false
+    const lastG          = effGroupMM(group, mmLast)
+    const prevG          = effGroupMM(group, mmPrev)
+    return (
+      <Fragment key={group.departmentId}>
+        <tr className="bg-gray-100 cursor-pointer hover:bg-gray-200 transition-colors select-none"
+            onClick={() => toggleDept(group.departmentId)}>
+          <td className="pl-4 pr-3 py-2 text-[13px] font-medium text-gray-700">
+            <span className="mr-2 text-gray-400 text-[10px]">{isDeptExpanded ? '▼' : '▶'}</span>
+            {group.deptFullName}
+          </td>
+          <OwnerCell py="py-2" />
+          {months!.map((mc, ci) => {
+            const g  = effGroupMM(group, ci)
+            const gb = monthLookups![ci].grossBudget
+            const ga = monthLookups![ci].grossActual
+            return (
+              <Fragment key={`${mc.year}-${mc.month}`}>
+                <AmtCell n={g.budget} py="py-2" />
+                <PctCell v={g.budget} base={gb} py="py-2" />
+                <AmtCell n={g.actual} py="py-2" />
+                <PctCell v={g.actual} base={ga} py="py-2" />
+              </Fragment>
+            )
+          })}
+          {mmN >= 2 && <DeltaCell p1={lastG.actual} p2={prevG.actual} revCtx={false} py="py-2" />}
+        </tr>
+        {isDeptExpanded && group.capexSubGroups!.map(sg => {
+          const catKey        = `${group.departmentId}|${sg.name}`
+          const isCatExpanded = collapse.categories[catKey] ?? false
+          return (
+            <Fragment key={catKey}>
+              <tr className="bg-white cursor-pointer hover:bg-gray-50 transition-colors select-none"
+                  style={{ borderLeft: '2px solid #d1d5db' }}
+                  onClick={() => toggleCategory(catKey)}>
+                <td className="pl-[34px] pr-3 py-1.5 text-xs font-medium text-gray-500">
+                  <span className="mr-2 text-gray-400 text-[10px]">{isCatExpanded ? '▼' : '▶'}</span>
+                  {sg.name}
+                </td>
+                <OwnerCell value={sg.ownerName} type="category" id={sg.categoryId} isEditable={false} suggestions={ownerOptions} />
+                {months!.map((mc, ci) => {
+                  const catAmts = sg.lineItems.reduce((acc: Amounts, li) => addAmounts(acc, effLIMM(li.lineItemId, ci)), ZERO)
+                  const gb = monthLookups![ci].grossBudget
+                  const ga = monthLookups![ci].grossActual
+                  return (
+                    <Fragment key={`${mc.year}-${mc.month}`}>
+                      <AmtCell n={catAmts.budget} />
+                      <PctCell v={catAmts.budget} base={gb} />
+                      <AmtCell n={catAmts.actual} />
+                      <PctCell v={catAmts.actual} base={ga} />
+                    </Fragment>
+                  )
+                })}
+                {mmN >= 2 && (() => {
+                  const lastC = sg.lineItems.reduce((acc: Amounts, li) => addAmounts(acc, effLIMM(li.lineItemId, mmLast)), ZERO)
+                  const prevC = sg.lineItems.reduce((acc: Amounts, li) => addAmounts(acc, effLIMM(li.lineItemId, mmPrev)), ZERO)
+                  return <DeltaCell p1={lastC.actual} p2={prevC.actual} revCtx={false} />
+                })()}
+              </tr>
+              {isCatExpanded && sg.lineItems.map(li => renderLineItemMM(li, group, section, true))}
             </Fragment>
           )
         })}
@@ -1558,6 +1686,8 @@ export default function PLTable({
                     {nonEmpty.map(g => {
                       if (section.id === 'cost_of_goods' && g.deptCode === 'COGS' && g.lineItems.length === 1)
                         return isMultiMonth ? renderCogsFlatRowMM(g, section) : renderCogsFlatRowCmp(g, section)
+                      if (g.capexSubGroups)
+                        return isMultiMonth ? renderCapexNestedGroupMM(g, section) : renderCapexNestedGroupCmp(g, section)
                       if (isMultiMonth) return isOpex ? renderOpexGroupMM(g, section) : renderStdGroupMM(g, section)
                       return isOpex ? renderOpexGroupCmp(g, section) : renderStdGroupCmp(g, section)
                     })}

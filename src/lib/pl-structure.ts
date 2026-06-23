@@ -12,11 +12,13 @@
 // ── Core types ────────────────────────────────────────────────────────────────
 
 export type PLGroup = {
-  readonly deptCode: string       // departments.code
-  readonly deptFullName: string   // display label (and dept full_name lookup unless categoryName is set)
-  readonly categoryName?: string  // if set, look up line items by category name instead of dept full_name
+  readonly deptCode: string        // departments.code
+  readonly deptFullName: string    // display label (and dept full_name lookup unless overrides below)
+  readonly categoryName?: string   // flat lookup: match line items where cat.name === categoryName
+  readonly capexGroupName?: string // nested lookup: match categories where cat.capex_group === capexGroupName
+  readonly capexSubGroupOrder?: readonly string[]  // explicit display order for nested sub-groups
   readonly subtotalLabel: string
-  readonly defaultOwnerName?: string | null  // shown when departments.owner_name is null
+  readonly defaultOwnerName?: string | null
 }
 
 export type PLSection = {
@@ -228,9 +230,16 @@ export const PL_SECTIONS: readonly PLSection[] = [
         subtotalLabel: 'Factory Investment subtotal',
       },
       {
-        deptCode:      'Depreciation & CAPEX',
-        deptFullName:  'New Store Investment',
-        categoryName:  'New Store Investment',
+        deptCode:        'Depreciation & CAPEX',
+        deptFullName:    'New Store Investment',
+        capexGroupName:  'New Store Investment',
+        capexSubGroupOrder: [
+          'Store Design & Construction',
+          'Deposits & Legal Setup',
+          'POS & Technology Setup',
+          'Store Fixtures & Equipment',
+          'Store Decoration & Branding',
+        ],
         subtotalLabel: 'New Store Investment subtotal',
       },
       {

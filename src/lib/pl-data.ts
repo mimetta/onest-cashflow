@@ -3,13 +3,13 @@ import { createSupabaseServerClient } from './supabase-server'
 import { PL_SECTIONS, PL_CALCULATED_ROWS } from './pl-structure'
 import {
   ZERO, amounts, addAmounts,
-  type Amounts, type PLLineItemRow, type PLGroupData,
+  type Amounts, type PLLineItemRow, type PLGroupData, type PLCapexSubGroup,
   type PLSectionData, type PLCalcRowData, type PLData,
 } from './pl-types'
 
 // Re-export everything so server components can import from one place
 export type {
-  Amounts, PLLineItemRow, PLGroupData, PLSectionData, PLCalcRowData, PLData, MonthColumn,
+  Amounts, PLLineItemRow, PLGroupData, PLCapexSubGroup, PLSectionData, PLCalcRowData, PLData, MonthColumn,
 } from './pl-types'
 export { ZERO, amounts, addAmounts } from './pl-types'
 
@@ -40,19 +40,20 @@ function buildPLDataFromMaps({
     deptOwnerMap[d.id] = d.owner_name ?? null
   }
 
-  // dept key → line items; also catMap keyed by `${dept.code}|${cat.name}`
+  // dept key → line items; catMap by category name; capexGroupMap for nested CAPEX sub-groups
   const deptMap: Record<string, PLLineItemRow[]> = {}
   const catMap:  Record<string, PLLineItemRow[]> = {}
+  // capexGroupMap: capex_group value → { categoryName → { items, catId, ownerName } }
+  const capexGroupMap = new Map<string, Map<string, { items: PLLineItemRow[]; catId: string; ownerName: string | null }>>()
+
   for (const li of lineItemsData) {
     const cat  = (li as any).categories
     const dept = cat?.departments
     if (!dept?.code || !dept?.full_name) continue
-    const deptKey = `${dept.code}|${dept.full_name}`
-    const catKey  = `${dept.code}|${cat.name}`
-    const budget  = budgetMap[li.id] ?? 0
-    const actual  = actualMap[li.id] ?? 0
-    // For OEM, use category name as sub-label when it differs from the item name
-    // (distinguishes "Raw Materials (Replenishing)" from "Raw Materials (NPD)" etc.)
+    const deptKey  = `${dept.code}|${dept.full_name}`
+    const catKey   = `${dept.code}|${cat.name}`
+    const budget   = budgetMap[li.id] ?? 0
+    const actual   = actualMap[li.id] ?? 0
     const subLabel: string | null = li.subcategory_l1
       ?? (dept.code === 'OEM' && cat.name !== li.name ? cat.name : null)
     const row: PLLineItemRow = {
@@ -70,38 +71,73 @@ function buildPLDataFromMaps({
     }
     ;(deptMap[deptKey] ??= []).push(row)
     ;(catMap[catKey]   ??= []).push(row)
+
+    // Populate capexGroupMap for categories that belong to a capex_group
+    const capexGroup = (cat as any).capex_group as string | null | undefined
+    if (capexGroup) {
+      if (!capexGroupMap.has(capexGroup)) capexGroupMap.set(capexGroup, new Map())
+      const sgMap = capexGroupMap.get(capexGroup)!
+      if (!sgMap.has(cat.name)) sgMap.set(cat.name, { items: [], catId: cat.id ?? '', ownerName: cat.owner_name ?? null })
+      sgMap.get(cat.name)!.items.push(row)
+    }
   }
 
   const totalsLookup: Record<string, Amounts> = {}
 
   const sections: PLSectionData[] = PL_SECTIONS.map(section => {
     const groups: PLGroupData[] = section.groups.map(group => {
-      let lineItems: PLLineItemRow[]
-      let departmentId: string
+      const baseDeptId = Object.entries(deptUuidMap)
+        .find(([k]) => k.startsWith(`${group.deptCode}|`))?.[1] ?? ''
 
-      if (group.categoryName) {
-        // Category-keyed lookup (e.g. CAPEX: one dept, three categories)
-        const ck  = `${group.deptCode}|${group.categoryName}`
-        lineItems = (catMap[ck] ?? []).slice().sort((a, b) => a.name.localeCompare(b.name))
-        // Synthetic ID unique per category so collapse state is independent per group
-        const baseDeptId = Object.entries(deptUuidMap)
-          .find(([k]) => k.startsWith(`${group.deptCode}|`))?.[1] ?? ''
-        departmentId = baseDeptId ? `${baseDeptId}:${group.categoryName}` : `cat:${group.categoryName}`
-      } else {
-        const dk  = `${group.deptCode}|${group.deptFullName}`
-        lineItems    = (deptMap[dk] ?? []).slice().sort((a, b) => a.name.localeCompare(b.name))
-        departmentId = deptUuidMap[dk] ?? ''
+      // ── Nested CAPEX group (capexGroupName set) ──────────────────────────
+      if (group.capexGroupName) {
+        type SgEntry = { items: PLLineItemRow[]; catId: string; ownerName: string | null }
+        const sgMap: Map<string, SgEntry> = capexGroupMap.get(group.capexGroupName) ?? new Map()
+        const allNames     = Array.from(sgMap.keys())
+        const orderedNames = group.capexSubGroupOrder
+          ? [
+              ...group.capexSubGroupOrder.filter(n => allNames.includes(n)),
+              ...allNames.filter(n => !group.capexSubGroupOrder!.includes(n)).sort(),
+            ]
+          : allNames.sort()
+        const capexSubGroups: PLCapexSubGroup[] = orderedNames.map(name => {
+          const sg          = sgMap.get(name)!
+          const sortedItems = sg.items.slice().sort((a, b) => a.name.localeCompare(b.name))
+          return { name, categoryId: sg.catId, ownerName: sg.ownerName, lineItems: sortedItems, subtotal: sortedItems.reduce(addAmounts, ZERO) }
+        })
+        const lineItems    = capexSubGroups.flatMap(sg => sg.lineItems)
+        const subtotal     = capexSubGroups.reduce((acc, sg) => addAmounts(acc, sg.subtotal), ZERO)
+        const departmentId = baseDeptId ? `${baseDeptId}:${group.capexGroupName}` : `capexgrp:${group.capexGroupName}`
+        return {
+          deptCode: group.deptCode, deptFullName: group.deptFullName, departmentId,
+          subtotalLabel: group.subtotalLabel, lineItems, subtotal,
+          ownerName: group.defaultOwnerName ?? null,
+          capexSubGroups,
+        }
       }
 
-      const subtotal = lineItems.reduce(addAmounts, ZERO)
+      // ── Flat CAPEX group (categoryName set) ─────────────────────────────
+      if (group.categoryName) {
+        const ck           = `${group.deptCode}|${group.categoryName}`
+        const lineItems    = (catMap[ck] ?? []).slice().sort((a, b) => a.name.localeCompare(b.name))
+        const subtotal     = lineItems.reduce(addAmounts, ZERO)
+        const departmentId = baseDeptId ? `${baseDeptId}:${group.categoryName}` : `cat:${group.categoryName}`
+        return {
+          deptCode: group.deptCode, deptFullName: group.deptFullName, departmentId,
+          subtotalLabel: group.subtotalLabel, lineItems, subtotal,
+          ownerName: deptOwnerMap[departmentId] ?? group.defaultOwnerName ?? null,
+        }
+      }
+
+      // ── Standard dept full_name lookup ───────────────────────────────────
+      const dk           = `${group.deptCode}|${group.deptFullName}`
+      const lineItems    = (deptMap[dk] ?? []).slice().sort((a, b) => a.name.localeCompare(b.name))
+      const subtotal     = lineItems.reduce(addAmounts, ZERO)
+      const departmentId = deptUuidMap[dk] ?? ''
       return {
-        deptCode:      group.deptCode,
-        deptFullName:  group.deptFullName,
-        departmentId,
-        subtotalLabel: group.subtotalLabel,
-        lineItems,
-        subtotal,
-        ownerName:     deptOwnerMap[departmentId] ?? group.defaultOwnerName ?? null,
+        deptCode: group.deptCode, deptFullName: group.deptFullName, departmentId,
+        subtotalLabel: group.subtotalLabel, lineItems, subtotal,
+        ownerName: deptOwnerMap[departmentId] ?? group.defaultOwnerName ?? null,
       }
     })
     const total = groups.reduce((acc, g) => addAmounts(acc, g.subtotal), ZERO)
@@ -135,7 +171,7 @@ export async function getPLData(year: number, month: number): Promise<PLData> {
   const [lineItemsRes, deptsRes, budgetsRes, expensesRes] = await Promise.all([
     supabase.from('line_items').select(`
       id, name, subcategory_l1, type, owner_name,
-      categories ( id, name, cogm_group, owner_name, is_hr_category, departments ( id, code, full_name ) )
+      categories ( id, name, cogm_group, capex_group, owner_name, is_hr_category, departments ( id, code, full_name ) )
     `).order('name'),
     supabase.from('departments').select('id, code, full_name, owner_name'),
     supabase.from('budget_submissions')
@@ -177,7 +213,7 @@ export async function getPLDataAggregated(
   const [lineItemsRes, deptsRes, budgetRes, expensesRes] = await Promise.all([
     supabase.from('line_items').select(`
       id, name, subcategory_l1, type, owner_name,
-      categories ( id, name, cogm_group, owner_name, is_hr_category, departments ( id, code, full_name ) )
+      categories ( id, name, cogm_group, capex_group, owner_name, is_hr_category, departments ( id, code, full_name ) )
     `).order('name'),
     supabase.from('departments').select('id, code, full_name, owner_name'),
     supabase.from('budget_submissions')
@@ -221,7 +257,7 @@ export async function getPLDataForMonths(
   const [lineItemsRes, deptsRes, budgetsRes, expensesRes] = await Promise.all([
     supabase.from('line_items').select(`
       id, name, subcategory_l1, type, owner_name,
-      categories ( id, name, cogm_group, owner_name, is_hr_category, departments ( id, code, full_name ) )
+      categories ( id, name, cogm_group, capex_group, owner_name, is_hr_category, departments ( id, code, full_name ) )
     `).order('name'),
     supabase.from('departments').select('id, code, full_name, owner_name'),
     supabase.from('budget_submissions')
