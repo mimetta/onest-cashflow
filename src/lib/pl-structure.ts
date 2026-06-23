@@ -13,7 +13,8 @@
 
 export type PLGroup = {
   readonly deptCode: string       // departments.code
-  readonly deptFullName: string   // departments.full_name
+  readonly deptFullName: string   // display label (and dept full_name lookup unless categoryName is set)
+  readonly categoryName?: string  // if set, look up line items by category name instead of dept full_name
   readonly subtotalLabel: string
   readonly defaultOwnerName?: string | null  // shown when departments.owner_name is null
 }
@@ -208,27 +209,34 @@ export const PL_SECTIONS: readonly PLSection[] = [
     ],
   },
 
-  // ── 6. CAPEX — 3 collapsible sub-groups ───────────────────────────────────
+  // ── 6. CAPEX — 3 category sub-groups under one department ─────────────────
+  // The DB has one department (code='Depreciation & CAPEX') with three categories.
+  // categoryName drives lookup via catMap in buildPLDataFromMaps; deptFullName is
+  // the display label shown in PLTable.
   {
     id:         'capex',
     title:      'Section 6 — CAPEX',
     totalLabel: 'TOTAL CAPEX',
     totalId:    'total_capex',
     defaultCollapsed: true,
+    hideOwner:  true,
     groups: [
       {
         deptCode:      'Depreciation & CAPEX',
         deptFullName:  'Factory Investment',
+        categoryName:  'Factory Investment',
         subtotalLabel: 'Factory Investment subtotal',
       },
       {
         deptCode:      'Depreciation & CAPEX',
         deptFullName:  'New Store Investment',
+        categoryName:  'New Store Investment',
         subtotalLabel: 'New Store Investment subtotal',
       },
       {
         deptCode:      'Depreciation & CAPEX',
         deptFullName:  'Lab Instrument Investment (RD)',
+        categoryName:  'Lab Instrument Investment (RD)',
         subtotalLabel: 'Lab Instrument Investment subtotal',
       },
     ],

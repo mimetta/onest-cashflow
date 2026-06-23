@@ -40,20 +40,22 @@ function buildPLDataFromMaps({
     deptOwnerMap[d.id] = d.owner_name ?? null
   }
 
-  // dept key → line items
+  // dept key → line items; also catMap keyed by `${dept.code}|${cat.name}`
   const deptMap: Record<string, PLLineItemRow[]> = {}
+  const catMap:  Record<string, PLLineItemRow[]> = {}
   for (const li of lineItemsData) {
     const cat  = (li as any).categories
     const dept = cat?.departments
     if (!dept?.code || !dept?.full_name) continue
-    const key    = `${dept.code}|${dept.full_name}`
-    const budget = budgetMap[li.id] ?? 0
-    const actual = actualMap[li.id] ?? 0
+    const deptKey = `${dept.code}|${dept.full_name}`
+    const catKey  = `${dept.code}|${cat.name}`
+    const budget  = budgetMap[li.id] ?? 0
+    const actual  = actualMap[li.id] ?? 0
     // For OEM, use category name as sub-label when it differs from the item name
     // (distinguishes "Raw Materials (Replenishing)" from "Raw Materials (NPD)" etc.)
     const subLabel: string | null = li.subcategory_l1
       ?? (dept.code === 'OEM' && cat.name !== li.name ? cat.name : null)
-    ;(deptMap[key] ??= []).push({
+    const row: PLLineItemRow = {
       lineItemId:        li.id,
       name:              li.name,
       subcategoryL1:     subLabel,
@@ -65,25 +67,41 @@ function buildPLDataFromMaps({
       lineItemType:      li.type ?? 'EXPENSE',
       ownerName:         (li as any).owner_name ?? null,
       ...amounts(budget, actual),
-    })
+    }
+    ;(deptMap[deptKey] ??= []).push(row)
+    ;(catMap[catKey]   ??= []).push(row)
   }
 
   const totalsLookup: Record<string, Amounts> = {}
 
   const sections: PLSectionData[] = PL_SECTIONS.map(section => {
     const groups: PLGroupData[] = section.groups.map(group => {
-      const key       = `${group.deptCode}|${group.deptFullName}`
-      const deptId    = deptUuidMap[key] ?? ''
-      const lineItems = (deptMap[key] ?? []).slice().sort((a, b) => a.name.localeCompare(b.name))
-      const subtotal  = lineItems.reduce(addAmounts, ZERO)
+      let lineItems: PLLineItemRow[]
+      let departmentId: string
+
+      if (group.categoryName) {
+        // Category-keyed lookup (e.g. CAPEX: one dept, three categories)
+        const ck  = `${group.deptCode}|${group.categoryName}`
+        lineItems = (catMap[ck] ?? []).slice().sort((a, b) => a.name.localeCompare(b.name))
+        // Synthetic ID unique per category so collapse state is independent per group
+        const baseDeptId = Object.entries(deptUuidMap)
+          .find(([k]) => k.startsWith(`${group.deptCode}|`))?.[1] ?? ''
+        departmentId = baseDeptId ? `${baseDeptId}:${group.categoryName}` : `cat:${group.categoryName}`
+      } else {
+        const dk  = `${group.deptCode}|${group.deptFullName}`
+        lineItems    = (deptMap[dk] ?? []).slice().sort((a, b) => a.name.localeCompare(b.name))
+        departmentId = deptUuidMap[dk] ?? ''
+      }
+
+      const subtotal = lineItems.reduce(addAmounts, ZERO)
       return {
-        deptCode:     group.deptCode,
-        deptFullName: group.deptFullName,
-        departmentId: deptId,
+        deptCode:      group.deptCode,
+        deptFullName:  group.deptFullName,
+        departmentId,
         subtotalLabel: group.subtotalLabel,
         lineItems,
         subtotal,
-        ownerName:    deptOwnerMap[deptId] ?? group.defaultOwnerName ?? null,
+        ownerName:     deptOwnerMap[departmentId] ?? group.defaultOwnerName ?? null,
       }
     })
     const total = groups.reduce((acc, g) => addAmounts(acc, g.subtotal), ZERO)
