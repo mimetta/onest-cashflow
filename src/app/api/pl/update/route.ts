@@ -64,37 +64,20 @@ export async function POST(req: NextRequest) {
       console.log('[pl/update] budget ok:', line_item_id, monthDate, value)
 
     } else {
-      const { data: existing } = await db
-        .from('expenses')
-        .select('id')
-        .eq('line_item_id', line_item_id)
-        .eq('month', monthDate)
-        .eq('source', 'manual_admin_edit')
-        .maybeSingle()
-
-      if (existing) {
-        const { error } = await db.from('expenses')
-          .update({ amount: value, description: `Inline edit by ${profile.role} — ${now}` })
-          .eq('id', existing.id)
-        if (error) {
-          console.error('[pl/update] expenses update failed:', error.message, '| code:', error.code, '| id:', existing.id)
-          return NextResponse.json({ error: error.message }, { status: 500 })
-        }
-      } else {
-        const payload = {
-          line_item_id,
-          submitted_by: user.id,
-          month:        monthDate,
-          amount:       value,
-          source:       'manual_admin_edit',
-          status:       'approved',
-          description:  `Inline edit by ${profile.role} — ${now}`,
-        }
-        const { error } = await db.from('expenses').insert(payload)
-        if (error) {
-          console.error('[pl/update] expenses insert failed:', error.message, '| code:', error.code, '| payload:', JSON.stringify(payload))
-          return NextResponse.json({ error: error.message }, { status: 500 })
-        }
+      const payload = {
+        line_item_id,
+        submitted_by: user.id,
+        month:        monthDate,
+        amount:       value,
+        source:       'manual_admin_edit',
+        status:       'approved',
+        description:  `Inline edit by ${profile.role} — ${now}`,
+      }
+      const { error } = await db.from('expenses')
+        .upsert(payload, { onConflict: 'line_item_id,month' })
+      if (error) {
+        console.error('[pl/update] expenses upsert failed:', error.message, '| code:', error.code, '| payload:', JSON.stringify(payload))
+        return NextResponse.json({ error: error.message }, { status: 500 })
       }
       console.log('[pl/update] actual ok:', line_item_id, monthDate, value)
     }
