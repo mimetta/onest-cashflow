@@ -225,6 +225,7 @@ export default function WideFormatImporter({ validKeys }: Props) {
   const [updateOwners,  setUpdateOwners]  = useState(false)
   const [loading,       setLoading]       = useState(false)
   const [status,        setStatus]        = useState<{ type: 'success' | 'error'; msg: string } | null>(null)
+  const [showAllMatched, setShowAllMatched] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
   const nameSet = buildNameSet(validKeys)
 
@@ -297,7 +298,22 @@ export default function WideFormatImporter({ validKeys }: Props) {
   const matched   = preview?.filter(r => r.dbStatus === 'ok')  ?? []
   const unmatched = preview?.filter(r => r.dbStatus === 'no_match') ?? []
   const deptSet   = new Set(preview?.map(r => r.department).filter(Boolean) ?? [])
-  const PREVIEW_LIMIT = 20
+  const PREVIEW_LIMIT = 50
+
+  function downloadUnmatchedCsv() {
+    const header = 'Line Item,Owner (Sheet),Detected Section'
+    const rows = unmatched.map(r => [
+      `"${r.lineItemName.replace(/"/g, '""')}"`,
+      `"${r.ownerFromSheet.replace(/"/g, '""')}"`,
+      `"${r.department.replace(/"/g, '""')}"`,
+    ].join(','))
+    const csv = [header, ...rows].join('\n')
+    const blob = new Blob([csv], { type: 'text/csv' })
+    const url  = URL.createObjectURL(blob)
+    const a    = document.createElement('a')
+    a.href = url; a.download = 'unmatched-items.csv'; a.click()
+    URL.revokeObjectURL(url)
+  }
 
   const yearOpts = Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 1 + i)
 
@@ -379,55 +395,103 @@ export default function WideFormatImporter({ validKeys }: Props) {
         </div>
       )}
 
-      {/* Preview table */}
+      {/* Matched items preview */}
       {preview && preview.length > 0 && (
         <div className="space-y-3">
-          <div className="flex items-center justify-between flex-wrap gap-2">
-            <p className="text-xs text-gray-500">
-              Showing first {Math.min(preview.length, PREVIEW_LIMIT)} of {preview.length} line items
-            </p>
-          </div>
 
-          <div className="rounded-lg border border-gray-200 overflow-hidden overflow-x-auto">
-            <table className="min-w-full text-xs">
-              <thead>
-                <tr className="bg-gray-50 border-b border-gray-200">
-                  {['Line Item', 'Owner (sheet)', 'Section / Dept', 'Months Found', 'Budget', 'Actual', 'Status'].map(h => (
-                    <th key={h} className="px-3 py-2 text-left font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {preview.slice(0, PREVIEW_LIMIT).map((r, i) => (
-                  <tr key={i} className={r.dbStatus === 'no_match' ? 'bg-amber-50' : ''}>
-                    <td className="px-3 py-1.5 text-gray-800 max-w-[200px] truncate font-medium">{r.lineItemName}</td>
-                    <td className="px-3 py-1.5 text-gray-500">{r.ownerFromSheet || '—'}</td>
-                    <td className="px-3 py-1.5 text-gray-500 max-w-[160px] truncate text-[11px]">{r.department || '—'}</td>
-                    <td className="px-3 py-1.5 text-gray-600 whitespace-nowrap">
-                      {r.monthsFound.map(m => MONTH_NAMES[m]).join(', ')}
-                    </td>
-                    <td className="px-3 py-1.5 text-gray-700 tabular-nums whitespace-nowrap">
-                      {r.monthsFound.map(m =>
-                        r.budgetByMonth[m] ? r.budgetByMonth[m].toLocaleString('en-US') : '—'
-                      ).join(' · ')}
-                    </td>
-                    <td className="px-3 py-1.5 text-gray-700 tabular-nums whitespace-nowrap">
-                      {r.monthsFound.map(m =>
-                        r.actualByMonth[m] ? r.actualByMonth[m].toLocaleString('en-US') : '—'
-                      ).join(' · ')}
-                    </td>
-                    <td className="px-3 py-1.5 whitespace-nowrap">
-                      {r.dbStatus === 'ok'
-                        ? <span className="text-emerald-600 font-medium">OK</span>
-                        : <span className="text-amber-600">No DB match</span>}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          {/* Matched table */}
+          {matched.length > 0 && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <p className="text-xs text-gray-500 font-medium">
+                  {matched.length} matched items
+                  {!showAllMatched && matched.length > PREVIEW_LIMIT && ` — showing first ${PREVIEW_LIMIT}`}
+                </p>
+                {matched.length > PREVIEW_LIMIT && (
+                  <button
+                    onClick={() => setShowAllMatched(v => !v)}
+                    className="text-xs text-indigo-600 hover:underline"
+                  >
+                    {showAllMatched ? 'Show less' : `Show all ${matched.length}`}
+                  </button>
+                )}
+              </div>
+              <div className="rounded-lg border border-gray-200 overflow-hidden overflow-x-auto">
+                <table className="min-w-full text-xs">
+                  <thead>
+                    <tr className="bg-gray-50 border-b border-gray-200">
+                      {['Line Item', 'Owner (sheet)', 'Section / Dept', 'Months Found', 'Budget', 'Actual'].map(h => (
+                        <th key={h} className="px-3 py-2 text-left font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {(showAllMatched ? matched : matched.slice(0, PREVIEW_LIMIT)).map((r, i) => (
+                      <tr key={i}>
+                        <td className="px-3 py-1.5 text-gray-800 max-w-[200px] truncate font-medium">{r.lineItemName}</td>
+                        <td className="px-3 py-1.5 text-gray-500">{r.ownerFromSheet || '—'}</td>
+                        <td className="px-3 py-1.5 text-gray-500 max-w-[160px] truncate text-[11px]">{r.department || '—'}</td>
+                        <td className="px-3 py-1.5 text-gray-600 whitespace-nowrap">
+                          {r.monthsFound.map(m => MONTH_NAMES[m]).join(', ')}
+                        </td>
+                        <td className="px-3 py-1.5 text-gray-700 tabular-nums whitespace-nowrap">
+                          {r.monthsFound.map(m =>
+                            r.budgetByMonth[m] ? r.budgetByMonth[m].toLocaleString('en-US') : '—'
+                          ).join(' · ')}
+                        </td>
+                        <td className="px-3 py-1.5 text-gray-700 tabular-nums whitespace-nowrap">
+                          {r.monthsFound.map(m =>
+                            r.actualByMonth[m] ? r.actualByMonth[m].toLocaleString('en-US') : '—'
+                          ).join(' · ')}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Unmatched items section */}
+          {unmatched.length > 0 && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <p className="text-sm font-semibold text-amber-700">
+                  {unmatched.length} item{unmatched.length !== 1 ? 's' : ''} not found in DB
+                </p>
+                <button
+                  onClick={downloadUnmatchedCsv}
+                  className="px-3 py-1.5 text-xs font-medium text-amber-700 border border-amber-300 bg-amber-50 rounded-lg hover:bg-amber-100 transition-colors whitespace-nowrap"
+                >
+                  Download Unmatched as CSV
+                </button>
+              </div>
+              <div className="rounded-lg border border-amber-200 overflow-hidden overflow-x-auto">
+                <table className="min-w-full text-xs">
+                  <thead>
+                    <tr className="bg-amber-50 border-b border-amber-200">
+                      {['Line Item', 'Owner (Sheet)', 'Detected Section'].map(h => (
+                        <th key={h} className="px-3 py-2 text-left font-semibold text-amber-700 uppercase tracking-wide whitespace-nowrap">
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-amber-100">
+                    {unmatched.map((r, i) => (
+                      <tr key={i} className="bg-amber-50/40">
+                        <td className="px-3 py-1.5 text-gray-800 font-medium max-w-[240px] truncate">{r.lineItemName}</td>
+                        <td className="px-3 py-1.5 text-gray-500">{r.ownerFromSheet || '—'}</td>
+                        <td className="px-3 py-1.5 text-gray-500 max-w-[200px] truncate text-[11px]">{r.department || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
 
           {/* Import options */}
           <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-4">
